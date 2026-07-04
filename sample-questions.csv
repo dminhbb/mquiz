@@ -1,0 +1,6 @@
+Số thứ tự,Loại câu hỏi,Nội dung câu hỏi,A,B,C,D,E,Đáp án đúng
+1,Một lựa chọn,HTML là viết tắt của gì?,HyperText Markup Language,HighText Machine Language,Home Tool Markup Language,Hyperlink Text Mode,,A
+2,Nhiều lựa chọn,Những lựa chọn nào là ngôn ngữ lập trình?,JavaScript,HTML,Python,CSS,Java,"A, C, E"
+3,Một lựa chọn,CSS dùng để làm gì?,Tạo cấu trúc dữ liệu,Trang trí giao diện,Quản lý database,Deploy server,,B
+4,Nhiều lựa chọn,Những phần nào thuộc frontend web?,HTML,CSS,JavaScript,SQLite,Express,"A, B, C"
+5,Một lựa chọn,HTTP status 404 thường nghĩa là gì?,Thành công,Không tìm thấy,Lỗi server,Chuyển hướng,,B

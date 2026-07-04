@@ -1,0 +1,28 @@
+# Node.js dependencies
+node_modules/
+
+# Local database and temporary database files
+backend/data/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+
+# Generated deployment files
+backend/dist/
+backend/export/
+*.zip
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+npm-debug.log*
+
+# Operating system and editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

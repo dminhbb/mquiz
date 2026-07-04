@@ -1,0 +1,22 @@
+{
+  "name": "simple-quiz",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Simple.QUIZ local backend and static quiz frontend",
+  "scripts": {
+    "dev": "node backend/src/server.js",
+    "start": "node backend/src/server.js",
+    "generate": "node backend/src/cli-generate.js",
+    "migrate:cloud": "node scripts/migrate-sqlite-to-supabase.js"
+  },
+  "dependencies": {
+    "archiver": "^7.0.1",
+    "bcrypt": "^6.0.0",
+    "better-sqlite3": "^12.11.1",
+    "csv-parse": "^5.6.0",
+    "express": "^4.21.2",
+    "express-session": "^1.18.1",
+    "multer": "^2.0.2"
+  },
+  "devDependencies": {}
+}
