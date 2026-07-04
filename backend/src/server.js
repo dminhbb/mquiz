@@ -385,11 +385,15 @@ app.post("/api/export", requireAuth, async (req, res) => {
 });
 
 app.use("/assets", express.static(path.join(distDir, "assets")));
+app.use("/assets", express.static(path.join(frontendDir, "assets")));
 app.use("/data", express.static(path.join(distDir, "data")));
+app.use("/data", express.static(path.join(frontendDir, "data")));
 app.use("/cloud-admin", express.static(cloudAdminDir));
 app.use("/preview", express.static(distDir));
+app.use("/preview", express.static(frontendDir));
 app.get("/preview/*", (req, res) => {
-  res.sendFile(path.join(distDir, "index.html"));
+  const generatedIndex = path.join(distDir, "index.html");
+  res.sendFile(fs.existsSync(generatedIndex) ? generatedIndex : path.join(frontendDir, "index.html"));
 });
 app.use("/static-source", express.static(frontendDir));
 
