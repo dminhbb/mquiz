@@ -179,6 +179,7 @@
             <button data-edit-space="${space.id}">Sửa thông tin space</button>
             <button data-groups="${space.id}">Quản lý nhóm trong Space</button>
             <button data-questions="${space.id}">Quản lý ngân hàng câu hỏi</button>
+            <button data-export-questions="${space.id}">Tải ngân hàng câu hỏi</button>
             <button data-real="${space.id}">Chế độ thi thật</button>
             <button data-export-real="${space.id}">Tải Excel dữ liệu Thi thật</button>
             <button class="danger menu-delete" data-delete-space="${space.id}">Xóa space</button>
@@ -192,6 +193,10 @@
     bind("[data-edit-space]", (button) => openSpace(Number(button.dataset.editSpace)));
     bind("[data-groups]", (button) => openGroups(Number(button.dataset.groups)));
     bind("[data-questions]", (button) => openQuestions(Number(button.dataset.questions)));
+    bind("[data-export-questions]", (button) => {
+      const space = state.spaces.find((item) => item.id === Number(button.dataset.exportQuestions));
+      if (space) exportQuestions(space.id, space.slug);
+    });
     bind("[data-real]", (button) => openRealExam(Number(button.dataset.real)));
     bind("[data-export-real]", (button) => exportRealExamResults(Number(button.dataset.exportReal)));
     bind("[data-delete-space]", (button) => deleteSpace(Number(button.dataset.deleteSpace)));
@@ -522,9 +527,13 @@
   }
 
   async function exportQuestions(spaceId, spaceSlug) {
-    const button = document.getElementById("exportQuestionsBtn");
-    button.disabled = true;
-    button.textContent = "Đang tạo CSV...";
+    const button = document.querySelector(`[data-export-questions="${spaceId}"]`)
+      || document.getElementById("exportQuestionsBtn");
+    if (button) {
+      button.disabled = true;
+      button.textContent = "Đang tạo CSV...";
+    }
+    document.querySelectorAll(".settings-menu[open]").forEach((menu) => menu.removeAttribute("open"));
     try {
       const { data, error } = await client
         .from("questions")
