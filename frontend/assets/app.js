@@ -1,5 +1,6 @@
 (function () {
   const app = document.getElementById("app");
+  const basePath = window.__SQ_BASE_PATH__ || "";
   const state = {
     theme: localStorage.getItem("sq-theme") || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"),
     space: null,
@@ -56,7 +57,13 @@
 
   async function boot() {
     renderShell("<div class='center'><div class='muted'>Đang tải...</div></div>");
-    const pathname = location.pathname.replace(/^\/preview(?=\/|$)/, "");
+    let pathname = location.pathname;
+    if (basePath && pathname.startsWith(`${basePath}/`)) {
+      pathname = pathname.slice(basePath.length);
+    } else if (pathname === basePath) {
+      pathname = "/";
+    }
+    pathname = pathname.replace(/^\/preview(?=\/|$)/, "");
     const slug = decodeURIComponent(pathname.replace(/^\/+|\/+$/g, ""));
     if (!slug) return renderWelcome();
     state.slug = slug;
@@ -75,7 +82,7 @@
     const dataToken = index[slugHash];
     if (!dataToken) return renderWelcome();
     try {
-      await loadScript(`/data/${dataToken}.data.js`);
+      await loadScript(`${basePath}/data/${dataToken}.data.js`);
       state.space = window.__SQ_SPACE__;
       state.dataToken = dataToken;
       configureLoadedSpace();
@@ -824,7 +831,7 @@
       return state.answers;
     }
     const keyToken = await sha256(`${state.dataToken}${state.space.key_salt}`);
-    await loadScript(`/data/${keyToken}.key.js`);
+    await loadScript(`${basePath}/data/${keyToken}.key.js`);
     state.answers = window.__SQ_ANSWERS__;
     return state.answers;
   }

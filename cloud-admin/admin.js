@@ -1,6 +1,8 @@
 (function () {
   const app = document.getElementById("adminApp");
   const dialog = document.getElementById("adminDialog");
+  const adminBaseUrl = new URL("./", location.href);
+  const quizBaseUrl = new URL("../", adminBaseUrl);
   const config = window.__SQ_SUPABASE__ || {};
   const client = window.supabase?.createClient(config.url, config.anonKey);
   const state = {
@@ -120,7 +122,7 @@
     const email = document.querySelector('[name="email"]').value.trim();
     if (!email) return setStatus("Nhập email trước khi yêu cầu đặt lại mật khẩu.", true);
     const { error } = await client.auth.resetPasswordForEmail(email, {
-      redirectTo: `${location.origin}${location.pathname.startsWith("/cloud-admin") ? "/cloud-admin/" : "/admin/"}`
+      redirectTo: adminBaseUrl.href
     });
     setStatus(error ? error.message : "Đã gửi email đặt lại mật khẩu.", Boolean(error));
   }
@@ -235,7 +237,7 @@
   function openShare(id) {
     const space = state.spaces.find((item) => item.id === id);
     if (!space) return;
-    const url = `${location.origin}/${encodeURIComponent(space.slug)}`;
+    const url = new URL(encodeURIComponent(space.slug), quizBaseUrl).href;
     openDialog(`<section class="share-dialog" aria-labelledby="shareDialogTitle">
       <div>
         <h2 id="shareDialogTitle">Chia sẻ Space · ${esc(space.name)}</h2>
@@ -278,14 +280,17 @@
       </div>
       <div class="path-field-row">
         <label>Đường dẫn<input id="spaceSlugInput" name="slug" value="${esc(space.slug)}" pattern="[a-z0-9-]+" required></label>
-        <div class="path-example"><span>Ví dụ</span><code>&lt;Đường dẫn của ứng dụng&gt;/&lt;Slug&gt;</code><small id="spaceUrlPreview">${esc(location.origin)}/${esc(space.slug || "slug")}</small></div>
+        <div class="path-example"><span>Ví dụ</span><code>&lt;Đường dẫn của ứng dụng&gt;/&lt;Slug&gt;</code><small id="spaceUrlPreview">${esc(new URL(encodeURIComponent(space.slug || "slug"), quizBaseUrl).href)}</small></div>
       </div>
       <label class="switch publish-switch"><input name="published" type="checkbox" ${space.published ? "checked" : ""}><span class="switch-track"></span><span>Published</span></label>
       <div class="actions"><button class="primary">Lưu</button><button type="button" data-close>Hủy</button></div>
     </form>`);
     document.querySelector("[data-close]").onclick = closeDialog;
     document.getElementById("spaceSlugInput").oninput = (event) => {
-      document.getElementById("spaceUrlPreview").textContent = `${location.origin}/${event.target.value || "slug"}`;
+      document.getElementById("spaceUrlPreview").textContent = new URL(
+        encodeURIComponent(event.target.value || "slug"),
+        quizBaseUrl
+      ).href;
     };
     document.getElementById("spaceForm").onsubmit = (event) => saveSpace(event, id);
   }
