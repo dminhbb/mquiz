@@ -169,8 +169,8 @@ with check (public.is_superadmin());
 
 drop policy if exists "spaces public read published" on public.spaces;
 create policy "spaces public read published"
-on public.spaces for select to anon, authenticated
-using (published or public.can_manage_space(id));
+on public.spaces for select to anon
+using (published);
 
 drop policy if exists "spaces admins manage" on public.spaces;
 create policy "spaces admins manage"
@@ -191,10 +191,9 @@ with check (public.is_superadmin());
 
 drop policy if exists "groups public read published" on public.groups;
 create policy "groups public read published"
-on public.groups for select to anon, authenticated
+on public.groups for select to anon
 using (
   exists (select 1 from public.spaces s where s.id = space_id and s.published)
-  or public.can_manage_space(space_id)
 );
 
 drop policy if exists "groups admins manage" on public.groups;
@@ -205,10 +204,9 @@ with check (public.can_manage_space(space_id));
 
 drop policy if exists "questions public read published" on public.questions;
 create policy "questions public read published"
-on public.questions for select to anon, authenticated
+on public.questions for select to anon
 using (
   exists (select 1 from public.spaces s where s.id = space_id and s.published)
-  or public.can_manage_space(space_id)
 );
 
 drop policy if exists "questions admins manage" on public.questions;

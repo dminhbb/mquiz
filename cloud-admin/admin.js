@@ -391,16 +391,19 @@
         { wch: 24 }, { wch: 42 }, { wch: 28 }, { wch: 10 }, { wch: 10 },
         { wch: 10 }, { wch: 12 }, { wch: 20 }, { wch: 22 }, { wch: 22 }
       ];
+      const examFillColors = {
+        1: "FFFF00",
+        2: "FFC0CB",
+        3: "D9D9D9"
+      };
       rows.forEach((row, index) => {
-        const segment = `${row.group_name || ""}::${row.exam_rank}`;
-        const previous = index > 0 ? `${rows[index - 1].group_name || ""}::${rows[index - 1].exam_rank}` : "";
-        if (index > 0 && segment === previous) return;
+        const fillColor = examFillColors[Number(row.exam_rank)];
+        if (!fillColor) return;
         for (let column = 0; column < 10; column += 1) {
           const cell = worksheet[XLSX.utils.encode_cell({ r: index + 1, c: column })];
           if (cell) {
             cell.s = {
-              fill: { patternType: "solid", fgColor: { rgb: "FFFF00" } },
-              font: { bold: true }
+              fill: { patternType: "solid", fgColor: { rgb: fillColor } }
             };
           }
         }
@@ -490,6 +493,7 @@
       <div class="actions">
         <button class="primary" id="previewCsvBtn">Preview</button>
         <button id="importCsvBtn" disabled>Thêm dữ liệu</button>
+        <button id="exportQuestionsBtn">Tải ngân hàng câu hỏi</button>
         <button class="danger" id="deleteQuestionsBtn">Xóa toàn bộ câu hỏi</button>
         <button data-close>Đóng</button>
       </div>
@@ -513,7 +517,56 @@
       });
     };
     document.getElementById("importCsvBtn").onclick = () => importQuestions(spaceId, parsedQuestions);
+    document.getElementById("exportQuestionsBtn").onclick = () => exportQuestions(spaceId, space.slug);
     document.getElementById("deleteQuestionsBtn").onclick = () => deleteAllQuestions(spaceId);
+  }
+
+  async function exportQuestions(spaceId, spaceSlug) {
+    const button = document.getElementById("exportQuestionsBtn");
+    button.disabled = true;
+    button.textContent = "Đang tạo CSV...";
+    try {
+      const { data, error } = await client
+        .from("questions")
+        .select("order_no,type,content,options_json,correct_json")
+        .eq("space_id", spaceId)
+        .order("order_no");
+      if (error) throw error;
+      if (!data?.length) throw new Error("Space chưa có câu hỏi để tải.");
+
+      const csvRows = data.map((question, index) => {
+        const options = question.options_json || {};
+        const correct = Array.isArray(question.correct_json) ? question.correct_json : [];
+        return {
+          "Số thứ tự": Number(question.order_no) || index + 1,
+          "Loại câu hỏi": question.type === "multi" ? "Nhiều lựa chọn" : "Một lựa chọn",
+          "Nội dung câu hỏi": question.content,
+          "A": options.A || "",
+          "B": options.B || "",
+          "C": options.C || "",
+          "D": options.D || "",
+          "E": options.E || "",
+          "Đáp án đúng": correct.join(", ")
+        };
+      });
+      const csv = `\uFEFF${Papa.unparse(csvRows)}`;
+      const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `ngan-hang-cau-hoi-${safeExportFileName(spaceSlug)}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      setStatus(`Đã tải ${data.length} câu hỏi.`);
+    } catch (error) {
+      showDialogError(error.message || "Không thể tải ngân hàng câu hỏi.");
+    } finally {
+      if (button?.isConnected) {
+        button.disabled = false;
+        button.textContent = "Tải ngân hàng câu hỏi";
+      }
+    }
   }
 
   function parseQuestions(rows) {
