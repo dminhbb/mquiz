@@ -65,6 +65,7 @@ function generateSpace(spaceId) {
     allowed_late_minutes: Number(space.allowed_late_minutes || 30),
     real_exam: {
       enabled: Boolean(space.real_exam_enabled),
+      scoring_method: Number(space.real_scoring_method || 1),
       question_percent: Number(space.real_question_percent || 50),
       timer_seconds: Number(space.real_timer_seconds || 60),
       multi_percent: Number(space.real_multi_percent || 50),

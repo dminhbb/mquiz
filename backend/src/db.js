@@ -36,6 +36,7 @@ function initDb() {
       real_timer_seconds INTEGER NOT NULL DEFAULT 60,
       real_multi_percent INTEGER NOT NULL DEFAULT 50,
       real_max_attempts INTEGER NOT NULL DEFAULT 1,
+      real_scoring_method INTEGER NOT NULL DEFAULT 1,
       real_exam_version TEXT,
       real_start_at TEXT,
       real_end_at TEXT,
@@ -87,6 +88,7 @@ function initDb() {
     ["real_timer_seconds", "INTEGER NOT NULL DEFAULT 60"],
     ["real_multi_percent", "INTEGER NOT NULL DEFAULT 50"],
     ["real_max_attempts", "INTEGER NOT NULL DEFAULT 1"],
+    ["real_scoring_method", "INTEGER NOT NULL DEFAULT 1"],
     ["real_exam_version", "TEXT"],
     ["real_start_at", "TEXT"],
     ["real_end_at", "TEXT"]

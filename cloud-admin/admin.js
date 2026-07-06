@@ -631,21 +631,60 @@
 
   function openRealExam(id) {
     const space = state.spaces.find((item) => item.id === id);
-    openDialog(`<form id="realForm" class="grid compact-dialog-form"><h2>Chế độ Thi thật</h2>
-      <label class="switch"><input name="enabled" type="checkbox" ${space.real_exam_enabled ? "checked" : ""}><span class="switch-track"></span><span>Bật Thi thật</span></label>
-      <div class="grid two">
+    openDialog(`<form id="realForm" class="grid compact-dialog-form real-exam-form">
+      <div class="real-exam-header">
+        <h2>Chế độ Thi thật</h2>
+        <label class="switch"><input name="enabled" type="checkbox" ${space.real_exam_enabled ? "checked" : ""}><span class="switch-track"></span><span>Bật Thi thật</span></label>
+      </div>
+      <div class="grid two real-exam-row">
         ${selectField("question_percent", "Số lượng câu hỏi", [30,50,70,100], space.real_question_percent, "%")}
         ${selectField("timer_seconds", "Thời gian mỗi câu", [45,60,90,120], space.real_timer_seconds, "s")}
+      </div>
+      <div class="grid two real-exam-row">
         ${selectField("multi_percent", "Tỷ lệ câu nhiều đáp án", [30,50,70,100], space.real_multi_percent, "%")}
         ${selectField("max_attempts", "Số lần thi tối đa", [1,2,3,4,5], space.real_max_attempts, "")}
+      </div>
+      <div class="grid two real-exam-row">
         <label>Ngày giờ bắt đầu<input name="start_at" type="datetime-local" value="${toLocalInput(space.real_start_at)}"></label>
         <label>Ngày giờ kết thúc<input name="end_at" type="datetime-local" value="${toLocalInput(space.real_end_at)}"></label>
       </div>
-      <p class="muted">${Math.min(space.counts.multi, Math.round((space.counts.multi * space.real_multi_percent / 100) / 2) * 2)} / ${space.counts.multi} câu nhiều đáp án</p>
+      <div class="scoring-field-row">
+        <label>Cách tính điểm<select name="scoring_method">
+          <option value="1" ${Number(space.real_scoring_method || 1) === 1 ? "selected" : ""}>Cách tính điểm 1</option>
+          <option value="2" ${Number(space.real_scoring_method || 1) === 2 ? "selected" : ""}>Cách tính điểm 2</option>
+        </select></label>
+        <div class="scoring-help">
+          <button type="button" class="scoring-help-button" aria-label="Xem chi tiết cách tính điểm" aria-expanded="false">?</button>
+          <div class="scoring-tooltip" role="tooltip">${scoringMethodTooltip(Number(space.real_scoring_method || 1))}</div>
+        </div>
+      </div>
       <div class="actions"><button class="primary">Lưu</button><button type="button" data-close>Hủy</button></div>
     </form>`);
     document.querySelector("[data-close]").onclick = closeDialog;
-    document.getElementById("realForm").onsubmit = (event) => saveRealExam(event, id);
+    const form = document.getElementById("realForm");
+    const scoringSelect = form.querySelector('[name="scoring_method"]');
+    const scoringHelp = form.querySelector(".scoring-help");
+    const scoringHelpButton = form.querySelector(".scoring-help-button");
+    const scoringTooltip = form.querySelector(".scoring-tooltip");
+    scoringSelect.onchange = () => {
+      scoringTooltip.innerHTML = scoringMethodTooltip(Number(scoringSelect.value));
+    };
+    scoringHelpButton.onclick = () => {
+      const open = scoringHelp.classList.toggle("open");
+      scoringHelpButton.setAttribute("aria-expanded", String(open));
+    };
+    form.onclick = (event) => {
+      if (event.target.closest(".scoring-help")) return;
+      scoringHelp.classList.remove("open");
+      scoringHelpButton.setAttribute("aria-expanded", "false");
+    };
+    form.onsubmit = (event) => saveRealExam(event, id);
+  }
+
+  function scoringMethodTooltip(method) {
+    return method === 2
+      ? `<b>Cách tính điểm 2</b><span>95 điểm theo tỷ lệ câu đúng tuyệt đối; câu nhiều đáp án phải đúng toàn bộ. 5 điểm theo tốc độ. Không tính quy mô đề hoặc đúng giờ.</span>`
+      : `<b>Cách tính điểm 1</b><span>75 điểm kiến thức có tính gần đúng; 10 điểm quy mô đề; 10 điểm tốc độ; 5 điểm đúng giờ.</span>`;
   }
 
   function selectField(name, label, values, selected, suffix) {
@@ -677,6 +716,7 @@
     );
     const payload = {
       real_exam_enabled: enabled,
+      real_scoring_method: Number(form.get("scoring_method")),
       real_question_percent: Number(form.get("question_percent")),
       real_timer_seconds: Number(form.get("timer_seconds")),
       real_multi_percent: Number(form.get("multi_percent")),

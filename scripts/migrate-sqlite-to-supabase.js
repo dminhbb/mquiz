@@ -64,6 +64,7 @@ async function main() {
     real_timer_seconds: space.real_timer_seconds || 60,
     real_multi_percent: space.real_multi_percent || 50,
     real_max_attempts: space.real_max_attempts || 1,
+    real_scoring_method: space.real_scoring_method || 1,
     real_exam_version: space.real_exam_version,
     real_start_at: toIso(space.real_start_at),
     real_end_at: toIso(space.real_end_at),

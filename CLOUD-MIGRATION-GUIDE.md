@@ -44,6 +44,7 @@ Trong Supabase SQL Editor:
 6. Chạy `supabase/add_real_exam_version.sql` nếu schema cloud đã được tạo từ phiên bản cũ.
 7. Chạy `supabase/add_space_status_rpc.sql` để frontend trả về 404 cho Space chưa Published.
 8. Chạy `supabase/add_real_exam_result_export.sql` để lưu mã đợt Thi thật và cho phép Admin xuất Excel 3 đợt gần nhất.
+9. Chạy `supabase/add_scoring_methods.sql` để thêm Cách tính điểm 1/2 cho từng Space và từng lượt thi.
 
 Các script dùng `if exists`/`if not exists` ở những vị trí cần thiết và không xóa dữ liệu kết quả cũ.
 

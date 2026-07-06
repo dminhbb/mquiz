@@ -183,6 +183,70 @@ dialog::backdrop { background: rgba(15, 23, 42, .48); }
   padding-top: 2px;
 }
 
+.real-exam-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.real-exam-header .switch { justify-self: end; }
+
+.scoring-field-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 38px;
+  align-items: end;
+  gap: 8px;
+  width: calc(50% - 7px);
+}
+
+.scoring-help { position: relative; }
+
+.scoring-help-button {
+  width: 38px;
+  min-height: 38px;
+  padding: 0;
+  border-radius: 50%;
+  font-size: 16px;
+}
+
+.scoring-tooltip {
+  position: absolute;
+  z-index: 110;
+  bottom: calc(100% + 12px);
+  right: 0;
+  width: min(360px, calc(100vw - 48px));
+  display: none;
+  gap: 5px;
+  padding: 13px 15px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, .95);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.55;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, .24);
+}
+
+.scoring-tooltip::after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  right: 12px;
+  border: 7px solid transparent;
+  border-top-color: rgba(0, 0, 0, .95);
+}
+
+.scoring-tooltip b,
+.scoring-tooltip span { display: block; }
+.scoring-help:hover .scoring-tooltip,
+.scoring-help.open .scoring-tooltip { display: grid; }
+
+@media (max-width: 640px) {
+  .scoring-field-row { width: 100%; }
+  .real-exam-header { align-items: flex-start; }
+}
+
 .path-field-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(260px, .9fr);

@@ -987,6 +987,27 @@ h3 { font-size: 18px; }
   white-space: nowrap;
 }
 
+.switch-student-btn {
+  width: 100%;
+  min-height: 36px;
+  margin-top: 8px;
+  border-color: rgba(255,255,255,.2);
+  background: rgba(255,255,255,.1);
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.switch-student-btn:hover {
+  border-color: rgba(255,255,255,.42);
+  background: rgba(255,255,255,.18);
+}
+
+.switch-student-btn:focus-visible {
+  outline: 3px solid rgba(255,255,255,.28);
+  outline-offset: 2px;
+}
+
 .setup-workspace {
   min-height: auto;
   display: grid;

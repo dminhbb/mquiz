@@ -5,6 +5,7 @@ create table if not exists public.quiz_attempts (
   student_name_key text not null,
   group_name text not null,
   mode text not null default 'mock' check (mode in ('mock', 'practice', 'real')),
+  scoring_method integer not null default 1 check (scoring_method in (1, 2)),
   score numeric(5,2) not null check (score between 0 and 100),
   total_questions integer not null check (total_questions > 0),
   bank_question_count integer not null check (bank_question_count > 0),
@@ -14,7 +15,7 @@ create table if not exists public.quiz_attempts (
   multi_similarity_score numeric(8,2) not null default 0 check (multi_similarity_score >= 0),
   duration_seconds integer not null check (duration_seconds >= 0),
   timer_seconds integer not null default 0 check (timer_seconds >= 0),
-  knowledge_score numeric(5,2) not null default 0 check (knowledge_score between 0 and 75),
+  knowledge_score numeric(5,2) not null default 0 check (knowledge_score between 0 and 95),
   coverage_score numeric(5,2) not null default 0 check (coverage_score between 0 and 10),
   duration_score numeric(5,2) not null default 0 check (duration_score between 0 and 10),
   punctuality_score numeric(5,2) not null default 0 check (punctuality_score between 0 and 5),
@@ -68,7 +69,8 @@ with check (
   and correct_count + wrong_count = total_questions
   and duration_seconds >= 0
   and timer_seconds >= 0
-  and knowledge_score between 0 and 75
+  and scoring_method in (1, 2)
+  and knowledge_score between 0 and 95
   and coverage_score between 0 and 10
   and duration_score between 0 and 10
   and punctuality_score between 0 and 5

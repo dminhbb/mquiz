@@ -157,7 +157,9 @@ Sau khi vào đúng space, hiển thị màn hình thiết lập với các lự
 - Ghi nhận kết quả: Nếu là **Thi thử** hoặc **Thi thật** và học viên hoàn thành hết câu hỏi, kết quả sẽ được ghi vào Supabase (nếu có cấu hình). Chế độ Luyện tập hoặc các lượt làm bài bị bấm kết thúc sớm sẽ **không lưu** lên cơ sở dữ liệu.
 
 ### 3.6. Chi tiết công thức tính Điểm Tổng hợp (Composite Score)
-Điểm số lưu trữ trên Supabase và hiển thị tại bảng xếp hạng là **Điểm tổng hợp (Composite Score)** từ 0 đến 100 điểm, cấu thành bởi 4 thành phần điểm thành phần:
+Mỗi Space chọn một trong hai cách tính điểm cho Chế độ Thi thật:
+
+- **Cách tính điểm 1** là công thức Composite Score hiện tại. Điểm từ 0 đến 100, cấu thành bởi 4 thành phần:
 ```
 Composite_Score = clamp(Knowledge_Score + Coverage_Score + Duration_Score + Punctuality_Score, 0, 100)
 ```
@@ -191,11 +193,18 @@ Composite_Score = clamp(Knowledge_Score + Coverage_Score + Duration_Score + Punc
 
 4. **Điểm Đúng giờ (Punctuality Score - tối đa 5 điểm)**:
    - Chỉ áp dụng nếu Space có cấu hình **Giờ thi chuẩn** (`exam_start_time`). Nếu không cấu hình, học viên mặc định nhận **5 điểm**.
+
    - Tính thời gian đi muộn $L$ (phút) so với giờ thi chuẩn đã hẹn:
      $$L = \max(0, \text{Giờ bắt đầu thi thực tế} - \text{Giờ thi chuẩn})$$
    - Công thức:
      $$Punctuality\_Score = 5 \times \max\left(0, 1 - \frac{L}{\text{allowed\_late\_minutes}}\right)$$
      *(Mặc định `allowed_late_minutes` là 30 phút)*.
+
+- **Cách tính điểm 2**:
+  - **95 điểm Câu trả lời đúng**: tỷ lệ số câu trả lời đúng tuyệt đối trên tổng số câu trong bài.
+  - Câu nhiều đáp án chỉ được tính đúng khi người làm chọn đúng toàn bộ và không chọn thừa đáp án.
+  - **5 điểm Thời gian**: hoàn thành nhanh hơn nhận điểm cao hơn, theo cùng đường chuẩn hóa tốc độ của Cách 1 nhưng quy đổi về tối đa 5 điểm.
+  - Không tính Điểm Quy mô đề và Điểm Đúng giờ. Mọi lượt bắt đầu trong khoảng thời gian Thi thật đều hợp lệ.
 
 ---
 

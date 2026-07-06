@@ -135,6 +135,7 @@
         })),
         real_exam: {
           enabled: Boolean(space.real_exam_enabled),
+          scoring_method: Number(space.real_scoring_method || 1),
           question_percent: space.real_question_percent,
           timer_seconds: space.real_timer_seconds,
           multi_percent: space.real_multi_percent,
@@ -151,7 +152,13 @@
   }
 
   function configureLoadedSpace() {
-    const groups = Array.isArray(state.space.groups) ? state.space.groups : [];
+    const groups = Array.isArray(state.space.groups)
+      ? [...state.space.groups].sort((left, right) => left.localeCompare(right, "vi", {
+        sensitivity: "base",
+        numeric: true
+      }))
+      : [];
+    state.space.groups = groups;
     const savedGroup = localStorage.getItem(`sq_group_${state.slug}`) || "";
     state.groupName = groups.includes(savedGroup) ? savedGroup : (groups[0] || "");
     if (state.space.real_exam?.enabled) {
@@ -286,6 +293,7 @@
         <div class="setup-student-card">
           <p>Học viên</p>
           <b>${esc(normalizeStudentName(state.studentName) || "Chưa nhập tên")}</b>
+          ${normalizeStudentName(state.studentName) ? '<button type="button" class="switch-student-btn" id="switchStudentBtn" aria-label="Đăng xuất và đổi học viên">Đăng xuất</button>' : ""}
         </div>
       </aside>
       <main class="leaderboard-workspace setup-workspace">
@@ -343,6 +351,7 @@
       state.studentName = event.target.value;
       const name = normalizeStudentName(state.studentName);
       if (name) localStorage.setItem("sq_student_name", name);
+      else localStorage.removeItem("sq_student_name");
     };
     const groupNameSelect = document.getElementById("groupName");
     if (groupNameSelect) groupNameSelect.onchange = (event) => {
@@ -351,7 +360,20 @@
     };
     const startButton = document.getElementById("startBtn");
     if (startButton) startButton.onclick = startQuiz;
+    const switchStudentButton = document.getElementById("switchStudentBtn");
+    if (switchStudentButton) switchStudentButton.onclick = switchStudent;
     document.getElementById("leaderboardBtn").onclick = () => showLeaderboard();
+  }
+
+  function switchStudent() {
+    localStorage.removeItem("sq_student_name");
+    state.studentName = "";
+    state.started = false;
+    state.done = false;
+    state.resultSaveStatus = "";
+    state.scoreBreakdown = null;
+    renderSetup();
+    document.getElementById("studentName")?.focus();
   }
 
   function realAttemptStorageKey(studentName) {
@@ -922,7 +944,8 @@
         knowledge_score: breakdown.knowledgeScore,
         coverage_score: breakdown.coverageScore,
         duration_score: breakdown.durationScore,
-        punctuality_score: breakdown.punctualityScore
+        punctuality_score: breakdown.punctualityScore,
+        scoring_method: breakdown.scoringMethod
       });
       if (error) throw error;
       state.resultSaveStatus = "Đã lưu kết quả thi.";
@@ -942,12 +965,16 @@
     let multiCorrectCount = 0;
     let multiSimilarityScore = 0;
 
+    const scoringMethod = state.mode === "real"
+      ? Number(state.space.real_exam?.scoring_method || 1)
+      : 1;
+
     state.selectedIds.forEach((id) => {
       const question = state.space.questions.find((item) => item.id === id);
       const selected = new Set(state.selections[id] || []);
       const correct = new Set(state.answers?.answers?.[id] || []);
       const isMulti = question?.type === "multi";
-      const weight = isMulti ? Math.min(2, 1 + 0.25 * Math.max(0, correct.size - 1)) : 1;
+      const weight = scoringMethod === 2 ? 1 : (isMulti ? Math.min(2, 1 + 0.25 * Math.max(0, correct.size - 1)) : 1);
       let similarity = 0;
 
       if (isMulti) {
@@ -955,7 +982,9 @@
         const falsePositive = [...selected].filter((letter) => !correct.has(letter)).length;
         const falseNegative = [...correct].filter((letter) => !selected.has(letter)).length;
         const denominator = 2 * truePositive + falsePositive + falseNegative;
-        similarity = denominator ? (2 * truePositive) / denominator : 0;
+        similarity = scoringMethod === 2
+          ? (falsePositive === 0 && falseNegative === 0 ? 1 : 0)
+          : (denominator ? (2 * truePositive) / denominator : 0);
         multiSimilarityScore += similarity;
         if (falsePositive === 0 && falseNegative === 0) multiCorrectCount += 1;
       } else {
@@ -972,6 +1001,22 @@
     const timerSeconds = Number(state.timerSeconds || state.space.timer_seconds || 0);
     const maximumDuration = totalQuestions * timerSeconds;
     const minimumReasonableDuration = maximumDuration * 0.3;
+    if (scoringMethod === 2) {
+      const knowledgeScore = totalQuestions ? 95 * multiAwareCorrectCount() / totalQuestions : 0;
+      const durationScore = maximumDuration > minimumReasonableDuration
+        ? 5 * clamp((maximumDuration - durationSeconds) / (maximumDuration - minimumReasonableDuration), 0, 1)
+        : 5;
+      return {
+        score: roundScore(clamp(knowledgeScore + durationScore, 0, 100)),
+        scoringMethod,
+        knowledgeScore: roundScore(knowledgeScore),
+        coverageScore: 0,
+        durationScore: roundScore(durationScore),
+        punctualityScore: 0,
+        multiCorrectCount,
+        multiSimilarityScore: roundScore(multiSimilarityScore)
+      };
+    }
     const knowledgeScore = totalWeight ? 75 * earnedWeight / totalWeight : 0;
     const coverageScore = bankQuestionCount ? 10 * totalQuestions / bankQuestionCount : 0;
     const durationScore = maximumDuration > minimumReasonableDuration
@@ -981,6 +1026,7 @@
 
     return {
       score: roundScore(clamp(knowledgeScore + coverageScore + durationScore + punctualityScore, 0, 100)),
+      scoringMethod,
       knowledgeScore: roundScore(knowledgeScore),
       coverageScore: roundScore(coverageScore),
       durationScore: roundScore(durationScore),
@@ -988,6 +1034,15 @@
       multiCorrectCount,
       multiSimilarityScore: roundScore(multiSimilarityScore)
     };
+  }
+
+  function multiAwareCorrectCount() {
+    return state.selectedIds.filter((id) => {
+      const selected = sorted(state.selections[id] || []);
+      const correct = sorted(state.answers?.answers?.[id] || []);
+      return selected.length === correct.length
+        && selected.every((letter, index) => letter === correct[index]);
+    }).length;
   }
 
   function calculatePunctualityScore(startedAt) {
@@ -1011,7 +1066,7 @@
     const score = breakdown.score;
     const questionsById = new Map(state.space.questions.map((question) => [question.id, question]));
     renderShell(`<section class="screen grid">
-      <div class="panel result-panel" style="text-align:center"><div class="score" style="--score:${score}"><span>${score}</span></div><h1>${score} điểm</h1><p class="muted">${correctCount}/${total} câu đúng</p><p class="muted">Kiến thức ${breakdown.knowledgeScore}/75 · Quy mô ${breakdown.coverageScore}/10 · Thời gian ${breakdown.durationScore}/10 · Đúng giờ ${breakdown.punctualityScore}/5</p>${state.resultSaveStatus ? `<p class="muted">${esc(state.resultSaveStatus)}</p>` : ""}<div class="actions center-actions"><button class="primary" id="retryBtn">Làm lại</button><button class="ghost" id="resultLeaderboardBtn">Bảng xếp hạng</button></div></div>
+      <div class="panel result-panel" style="text-align:center"><div class="score" style="--score:${score}"><span>${score}</span></div><h1>${score} điểm</h1><p class="muted">${correctCount}/${total} câu đúng</p><p class="muted">${breakdown.scoringMethod === 2 ? `Câu trả lời đúng ${breakdown.knowledgeScore}/95 · Thời gian ${breakdown.durationScore}/5` : `Kiến thức ${breakdown.knowledgeScore}/75 · Quy mô ${breakdown.coverageScore}/10 · Thời gian ${breakdown.durationScore}/10 · Đúng giờ ${breakdown.punctualityScore}/5`}</p>${state.resultSaveStatus ? `<p class="muted">${esc(state.resultSaveStatus)}</p>` : ""}<div class="actions center-actions"><button class="primary" id="retryBtn">Làm lại</button><button class="ghost" id="resultLeaderboardBtn">Bảng xếp hạng</button></div></div>
       <div class="grid">${state.selectedIds.map((id, index) => {
         const question = questionsById.get(id);
         const selected = state.selections[id] || [];

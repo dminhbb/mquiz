@@ -23,6 +23,7 @@ create table if not exists public.spaces (
   real_timer_seconds integer not null default 60 check (real_timer_seconds in (45, 60, 90, 120)),
   real_multi_percent integer not null default 50 check (real_multi_percent in (30, 50, 70, 100)),
   real_max_attempts integer not null default 1 check (real_max_attempts between 1 and 5),
+  real_scoring_method integer not null default 1 check (real_scoring_method in (1, 2)),
   real_exam_version text not null default gen_random_uuid()::text,
   real_start_at timestamptz,
   real_end_at timestamptz,
@@ -37,6 +38,9 @@ create table if not exists public.spaces (
 
 alter table public.spaces
 add column if not exists real_exam_version text;
+
+alter table public.spaces
+add column if not exists real_scoring_method integer not null default 1;
 
 update public.spaces
 set real_exam_version = gen_random_uuid()::text
@@ -294,6 +298,7 @@ begin
     real_timer_seconds = excluded.real_timer_seconds,
     real_multi_percent = excluded.real_multi_percent,
     real_max_attempts = excluded.real_max_attempts,
+    real_scoring_method = excluded.real_scoring_method,
     real_exam_version = excluded.real_exam_version,
     real_start_at = excluded.real_start_at,
     real_end_at = excluded.real_end_at,

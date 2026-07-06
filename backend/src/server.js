@@ -214,11 +214,13 @@ app.put("/api/spaces/:id/real-exam", requireAuth, (req, res) => {
   const timerSeconds = Number(req.body.timer_seconds);
   const multiPercent = Number(req.body.multi_percent);
   const maxAttempts = Number(req.body.max_attempts);
+  const scoringMethod = Number(req.body.scoring_method || 1);
   const startAt = String(req.body.start_at || "").trim();
   const endAt = String(req.body.end_at || "").trim();
   if (![30, 50, 70, 100].includes(questionPercent)) return res.status(400).json({ error: "Tỷ lệ câu hỏi không hợp lệ." });
   if (![45, 60, 90, 120].includes(timerSeconds)) return res.status(400).json({ error: "Thời gian mỗi câu không hợp lệ." });
   if (![30, 50, 70, 100].includes(multiPercent)) return res.status(400).json({ error: "Tỷ lệ câu nhiều đáp án không hợp lệ." });
+  if (![1, 2].includes(scoringMethod)) return res.status(400).json({ error: "Cách tính điểm không hợp lệ." });
   if (!Number.isInteger(maxAttempts) || maxAttempts < 1 || maxAttempts > 5) {
     return res.status(400).json({ error: "Số lần thi phải từ 1 đến 5." });
   }
@@ -238,10 +240,10 @@ app.put("/api/spaces/:id/real-exam", requireAuth, (req, res) => {
   db.prepare(`
     UPDATE spaces
     SET real_exam_enabled = ?, real_question_percent = ?, real_timer_seconds = ?,
-        real_multi_percent = ?, real_max_attempts = ?, real_exam_version = ?, real_start_at = ?, real_end_at = ?,
+        real_multi_percent = ?, real_max_attempts = ?, real_scoring_method = ?, real_exam_version = ?, real_start_at = ?, real_end_at = ?,
         dirty = 1, updated_at = CURRENT_TIMESTAMP
     WHERE id = ?
-  `).run(enabled, questionPercent, timerSeconds, multiPercent, maxAttempts, examVersion, startAt || null, endAt || null, id);
+  `).run(enabled, questionPercent, timerSeconds, multiPercent, maxAttempts, scoringMethod, examVersion, startAt || null, endAt || null, id);
   jsonOk(res);
 });
 
@@ -391,11 +393,14 @@ app.use("/data", express.static(path.join(frontendDir, "data")));
 app.use("/cloud-admin", express.static(cloudAdminDir));
 app.use("/preview", express.static(distDir));
 app.use("/preview", express.static(frontendDir));
-app.get("/preview/*", (req, res) => {
+function sendQuizIndex(req, res) {
   const generatedIndex = path.join(distDir, "index.html");
   res.sendFile(fs.existsSync(generatedIndex) ? generatedIndex : path.join(frontendDir, "index.html"));
-});
+}
+
+app.get("/preview/*", sendQuizIndex);
 app.use("/static-source", express.static(frontendDir));
+app.get("/:slug([a-z0-9-]+)", sendQuizIndex);
 
 app.listen(port, () => {
   console.log(`vn.Quiz backend: http://localhost:${port}/admin`);
@@ -465,12 +470,13 @@ function adminHtml() {
     '.checkbox-row label{display:flex;align-items:center;gap:6px;color:var(--ink);font-weight:600;cursor:pointer}'+
     '.switch-control{display:flex;align-items:center;gap:12px;font-weight:800;cursor:pointer}.switch-control input{position:absolute;opacity:0;pointer-events:none}.switch-track{position:relative;width:48px;height:26px;border-radius:13px;background:#9aa7bd;transition:background .18s cubic-bezier(.23,1,.32,1)}.switch-track:after{content:"";position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#fff;box-shadow:0 1px 4px rgba(15,23,42,.28);transition:transform .18s cubic-bezier(.23,1,.32,1)}.switch-control input:checked+.switch-track{background:var(--brand)}.switch-control input:checked+.switch-track:after{transform:translateX(22px)}.switch-control input:focus-visible+.switch-track{outline:3px solid rgba(47,101,216,.24);outline-offset:2px}'+
     '.compact-modal-form{gap:8px}.compact-modal-form h2{margin:0;font-size:21px;line-height:1.25}.compact-modal-form>.grid{gap:8px 12px}.compact-modal-form label{gap:4px;font-size:12px}.compact-modal-form input,.compact-modal-form select{min-height:36px;padding:6px 9px}.compact-modal-form .actions{justify-content:flex-end;padding-top:2px}'+
+    '.real-exam-header{display:flex;align-items:center;justify-content:space-between;gap:16px}.scoring-field-row{display:grid;grid-template-columns:minmax(0,1fr) 38px;align-items:end;gap:8px;width:calc(50% - 6px)}.scoring-help{position:relative}.scoring-help-button{width:38px;min-height:36px;padding:0;border-radius:50%;font-size:16px}.scoring-tooltip{position:absolute;z-index:30;right:0;bottom:calc(100% + 12px);width:min(360px,calc(100vw - 48px));display:none;gap:5px;padding:13px 15px;border-radius:8px;background:rgba(0,0,0,.95);color:#fff;font-size:12px;font-weight:500;line-height:1.55;box-shadow:0 12px 30px rgba(0,0,0,.24)}.scoring-tooltip:after{content:"";position:absolute;top:100%;right:12px;border:7px solid transparent;border-top-color:rgba(0,0,0,.95)}.scoring-tooltip b,.scoring-tooltip span{display:block}.scoring-help:hover .scoring-tooltip,.scoring-help.open .scoring-tooltip{display:grid}'+
     '.group-list{display:flex;flex-direction:column;gap:4px;max-height:96px;overflow-y:auto;border:1px solid var(--line);border-radius:7px;padding:7px}'+
     '.group-item{display:flex;gap:6px;align-items:center}'+
     '.group-item span{flex:1}'+
     '.group-item button{min-height:32px;padding:5px 10px;font-size:12px}'+
     '.group-item.default span{font-weight:700;color:var(--brand)}'+
-    '@media(max-width:900px){.app{width:calc(100vw - 16px);margin:8px;grid-template-columns:1fr}.sidebar{border-right:0}.grid.two{grid-template-columns:1fr}.main{padding:16px}.topbar{align-items:stretch;flex-direction:column}}'+
+    '@media(max-width:900px){.app{width:calc(100vw - 16px);margin:8px;grid-template-columns:1fr}.sidebar{border-right:0}.grid.two{grid-template-columns:1fr}.main{padding:16px}.topbar{align-items:stretch;flex-direction:column}.scoring-field-row{width:100%}.real-exam-header{align-items:flex-start}}'+
     '</style>';
 
   var scripts = '<script>'+
@@ -629,10 +635,14 @@ function adminHtml() {
     'function realMultiCount(total,percent){return Math.min(total,Math.round((total*percent/100)/2)*2)}'+
     'function openRealExam(id){'+
       'var s=state.spaces.find(function(x){return x.id===id});if(!s)return;'+
-      'openModal(`<form class="grid compact-modal-form" onsubmit="saveRealExam(event,${id})"><h2>Chế độ Thi thật</h2><label class="switch-control"><input type="checkbox" name="enabled" ${s.real_exam_enabled?"checked":""}><span class="switch-track" aria-hidden="true"></span><span>Bật chế độ Thi thật cho Space này</span></label><div class="grid two"><label>Số lượng câu hỏi<select name="question_percent">${[30,50,70,100].map(function(v){return `<option value="${v}" ${Number(s.real_question_percent)===v?"selected":""}>${v}%</option>`}).join("")}</select></label><label>Thời gian mỗi câu<select name="timer_seconds">${[45,60,90,120].map(function(v){return `<option value="${v}" ${Number(s.real_timer_seconds)===v?"selected":""}>${v}s</option>`}).join("")}</select></label><label>Số câu Nhiều đáp án<select name="multi_percent" onchange="updateRealMultiPreview(${Number(s.multi_question_count||0)},this.value)">${[30,50,70,100].map(function(v){return `<option value="${v}" ${Number(s.real_multi_percent)===v?"selected":""}>${v}%</option>`}).join("")}</select><span class="muted" id="realMultiPreview">${realMultiCount(Number(s.multi_question_count||0),Number(s.real_multi_percent||50))} / ${Number(s.multi_question_count||0)} câu</span></label><label>Số lần thi tối đa<select name="max_attempts">${[1,2,3,4,5].map(function(v){return `<option value="${v}" ${Number(s.real_max_attempts)===v?"selected":""}>${v}</option>`}).join("")}</select></label><label>Ngày giờ bắt đầu<input name="start_at" type="datetime-local" value="${esc(s.real_start_at||"")}"></label><label>Ngày giờ kết thúc<input name="end_at" type="datetime-local" value="${esc(s.real_end_at||"")}"></label></div><div class="actions"><button class="primary">Lưu cấu hình</button><button type="button" onclick="closeModal()">Hủy</button></div></form>`);'+
+      'openModal(`<form class="grid compact-modal-form" onsubmit="saveRealExam(event,${id})"><div class="real-exam-header"><h2>Chế độ Thi thật</h2><label class="switch-control"><input type="checkbox" name="enabled" ${s.real_exam_enabled?"checked":""}><span class="switch-track" aria-hidden="true"></span><span>Bật Thi thật</span></label></div><div class="grid two"><label>Số lượng câu hỏi<select name="question_percent">${[30,50,70,100].map(function(v){return `<option value="${v}" ${Number(s.real_question_percent)===v?"selected":""}>${v}%</option>`}).join("")}</select></label><label>Thời gian mỗi câu<select name="timer_seconds">${[45,60,90,120].map(function(v){return `<option value="${v}" ${Number(s.real_timer_seconds)===v?"selected":""}>${v}s</option>`}).join("")}</select></label></div><div class="grid two"><label>Tỷ lệ câu nhiều đáp án<select name="multi_percent" onchange="updateRealMultiPreview(${Number(s.multi_question_count||0)},this.value)">${[30,50,70,100].map(function(v){return `<option value="${v}" ${Number(s.real_multi_percent)===v?"selected":""}>${v}%</option>`}).join("")}</select><span class="muted" id="realMultiPreview">${realMultiCount(Number(s.multi_question_count||0),Number(s.real_multi_percent||50))} / ${Number(s.multi_question_count||0)} câu</span></label><label>Số lần thi tối đa<select name="max_attempts">${[1,2,3,4,5].map(function(v){return `<option value="${v}" ${Number(s.real_max_attempts)===v?"selected":""}>${v}</option>`}).join("")}</select></label></div><div class="grid two"><label>Ngày giờ bắt đầu<input name="start_at" type="datetime-local" value="${esc(s.real_start_at||"")}"></label><label>Ngày giờ kết thúc<input name="end_at" type="datetime-local" value="${esc(s.real_end_at||"")}"></label></div><div class="scoring-field-row"><label>Cách tính điểm<select name="scoring_method" onchange="updateScoringTooltip(this.value)"><option value="1" ${Number(s.real_scoring_method||1)===1?"selected":""}>Cách tính điểm 1</option><option value="2" ${Number(s.real_scoring_method||1)===2?"selected":""}>Cách tính điểm 2</option></select></label><div class="scoring-help"><button type="button" class="scoring-help-button" aria-label="Xem chi tiết cách tính điểm" aria-expanded="false" onclick="toggleScoringTooltip(this)">?</button><div class="scoring-tooltip" role="tooltip">${scoringTooltipHtml(Number(s.real_scoring_method||1))}</div></div></div><div class="actions"><button class="primary">Lưu</button><button type="button" onclick="closeModal()">Hủy</button></div></form>`);'+
     '}'+
+    'function scoringTooltipHtml(value){return Number(value)===2?`<b>Cách tính điểm 2</b><span>95 điểm theo tỷ lệ câu đúng tuyệt đối; câu nhiều đáp án phải đúng toàn bộ. 5 điểm theo tốc độ. Không tính quy mô đề hoặc đúng giờ.</span>`:`<b>Cách tính điểm 1</b><span>75 điểm kiến thức có tính gần đúng; 10 điểm quy mô đề; 10 điểm tốc độ; 5 điểm đúng giờ.</span>`}'+
+    'function updateScoringTooltip(value){var tooltip=$(".scoring-tooltip");if(tooltip)tooltip.innerHTML=scoringTooltipHtml(value)}'+
+    'function toggleScoringTooltip(button){var help=button.closest(".scoring-help");var open=help.classList.toggle("open");button.setAttribute("aria-expanded",String(open))}'+
+    'document.addEventListener("click",function(event){if(event.target.closest(".scoring-help"))return;document.querySelectorAll(".scoring-help.open").forEach(function(help){help.classList.remove("open");var button=help.querySelector("button");if(button)button.setAttribute("aria-expanded","false")})});'+
     'function updateRealMultiPreview(total,percent){var el=$("#realMultiPreview");if(el)el.textContent=realMultiCount(total,Number(percent))+" / "+total+" câu"}'+
-    'async function saveRealExam(event,id){event.preventDefault();var f=new FormData(event.target);await api("/api/spaces/"+id+"/real-exam",{method:"PUT",body:JSON.stringify({enabled:f.has("enabled"),question_percent:Number(f.get("question_percent")),timer_seconds:Number(f.get("timer_seconds")),multi_percent:Number(f.get("multi_percent")),max_attempts:Number(f.get("max_attempts")),start_at:f.get("start_at"),end_at:f.get("end_at")})});closeModal();await renderSpaces($("#view"))}'+
+    'async function saveRealExam(event,id){event.preventDefault();var f=new FormData(event.target);await api("/api/spaces/"+id+"/real-exam",{method:"PUT",body:JSON.stringify({enabled:f.has("enabled"),scoring_method:Number(f.get("scoring_method")),question_percent:Number(f.get("question_percent")),timer_seconds:Number(f.get("timer_seconds")),multi_percent:Number(f.get("multi_percent")),max_attempts:Number(f.get("max_attempts")),start_at:f.get("start_at"),end_at:f.get("end_at")})});closeModal();await renderSpaces($("#view"))}'+
     'function openCsv(id){openModal(`<div class="grid"><h2>Upload CSV</h2><p class="muted">CSV mới sẽ được nối thêm vào ngân hàng câu hỏi hiện tại.</p><input id="csvFile" type="file" accept=".csv,text/csv"><div id="csvResult" class="muted"></div><div class="actions"><button class="primary" onclick="previewCsv(${id})">Preview</button><button onclick="confirmCsv(${id})">Xác nhận thêm dữ liệu</button><button class="danger" onclick="deleteAllQuestions(${id})">Xóa toàn bộ câu hỏi</button><button onclick="closeModal()">Đóng</button></div></div>`)}'+
     'async function deleteAllQuestions(id){if(!confirm("Xóa toàn bộ dữ liệu câu hỏi của Space này? Thao tác không thể hoàn tác."))return;var data=await api("/api/spaces/"+id+"/questions",{method:"DELETE"});toast("Đã xóa "+data.deleted+" câu hỏi.");closeModal();await renderSpaces($("#view"))}'+
     'async function previewCsv(id){'+
