@@ -13,6 +13,7 @@
     timerSeconds: 60,
     studentName: localStorage.getItem("sq_student_name") || "",
     groupName: "",
+    selectedQuestionSetIds: [],
     selectedIds: [],
     current: 0,
     selections: {},
@@ -114,11 +115,12 @@
         .eq("published", true)
         .maybeSingle();
       if (error || !space) return false;
-      const [{ data: groups, error: groupError }, { data: questions, error: questionError }] = await Promise.all([
+      const [{ data: groups, error: groupError }, { data: questions, error: questionError }, { data: questionSets, error: questionSetError }] = await Promise.all([
         client.from("groups").select("name").eq("space_id", space.id).order("name"),
-        client.from("questions").select("id,type,content,options_json,order_no").eq("space_id", space.id).order("order_no")
+        client.from("questions").select("id,type,content,options_json,order_no,question_set_id").eq("space_id", space.id).order("order_no"),
+        client.from("question_sets").select("id,name").eq("space_id", space.id).order("name")
       ]);
-      if (groupError || questionError || !questions?.length) return false;
+      if (groupError || questionError || questionSetError || !questions?.length) return false;
       state.cloud = true;
       state.space = {
         id: space.id,
@@ -127,19 +129,23 @@
         exam_start_time: space.exam_start_time,
         allowed_late_minutes: space.allowed_late_minutes,
         groups: (groups || []).map((group) => group.name),
+        question_sets: (questionSets || []).map((set) => ({ id: Number(set.id), name: set.name })),
         questions: questions.map((question) => ({
           id: question.id,
           type: question.type,
+          question_set_id: Number(question.question_set_id || 0),
           content: question.content,
           options: question.options_json
         })),
         real_exam: {
           enabled: Boolean(space.real_exam_enabled),
+          name: space.real_exam_name || "",
           scoring_method: Number(space.real_scoring_method || 1),
           question_percent: space.real_question_percent,
           timer_seconds: space.real_timer_seconds,
           multi_percent: space.real_multi_percent,
           max_attempts: space.real_max_attempts,
+          question_sets: Array.isArray(space.real_question_sets) ? space.real_question_sets : [],
           version: space.real_exam_version,
           start_at: space.real_start_at,
           end_at: space.real_end_at
@@ -159,6 +165,13 @@
       }))
       : [];
     state.space.groups = groups;
+    const questionSets = Array.isArray(state.space.question_sets) ? state.space.question_sets : [];
+    state.space.question_sets = questionSets;
+    const savedSetIds = (localStorage.getItem(`sq_question_sets_${state.slug}`) || "")
+      .split(",")
+      .map((id) => Number(id))
+      .filter((id) => questionSets.some((set) => Number(set.id) === id));
+    state.selectedQuestionSetIds = savedSetIds.length ? savedSetIds : questionSets.map((set) => Number(set.id));
     const savedGroup = localStorage.getItem(`sq_group_${state.slug}`) || "";
     state.groupName = groups.includes(savedGroup) ? savedGroup : (groups[0] || "");
     if (state.space.real_exam?.enabled) {
@@ -234,6 +247,34 @@
     return Math.min(total, Math.max(5, Math.round(raw / 5) * 5));
   }
 
+  function selectedQuestionSetIdsForMode() {
+    if (state.mode === "real") {
+      const configured = (state.space.real_exam?.question_sets || [])
+        .map((item) => Number(item.id ?? item.question_set_id))
+        .filter(Boolean);
+      return configured.length ? configured : (state.space.question_sets || []).map((set) => Number(set.id));
+    }
+    return state.selectedQuestionSetIds.length
+      ? state.selectedQuestionSetIds
+      : (state.space.question_sets || []).map((set) => Number(set.id));
+  }
+
+  function questionPoolForMode() {
+    const ids = new Set(selectedQuestionSetIdsForMode());
+    if (!ids.size) return state.space.questions;
+    return state.space.questions.filter((question) => ids.has(Number(question.question_set_id)));
+  }
+
+  function toggleQuestionSetSelection(id) {
+    const current = new Set(state.selectedQuestionSetIds);
+    if (current.has(id)) current.delete(id);
+    else current.add(id);
+    if (!current.size) current.add(id);
+    state.selectedQuestionSetIds = [...current];
+    localStorage.setItem(`sq_question_sets_${state.slug}`, state.selectedQuestionSetIds.join(","));
+    renderSetup();
+  }
+
   function normalizeStudentName(value) {
     return String(value || "").trim().replace(/\s+/g, " ");
   }
@@ -265,7 +306,6 @@
 
   function renderSetup() {
     stopTimer();
-    const total = state.space.questions.length;
     const timerOptions = [15, 30, 45, 60, 90, 120];
     const realExam = Boolean(state.space.real_exam?.enabled);
     if (realExam) {
@@ -273,6 +313,8 @@
       state.percent = Number(state.space.real_exam.question_percent || 50);
       state.timerSeconds = Number(state.space.real_exam.timer_seconds || 60);
     }
+    const questionPool = questionPoolForMode();
+    const total = questionPool.length;
     if (state.mode === "mock" && state.timerSeconds === null) {
       state.timerSeconds = Number(state.space.timer_seconds || 60);
     }
@@ -329,6 +371,17 @@
               </select>
             </label>
           </section>
+          ${realExam ? "" : `<section class="setup-widget question-set-widget">
+            <div class="widget-title"><h2>Bộ câu hỏi</h2><p>Có thể chọn một hoặc nhiều Bộ câu hỏi.</p></div>
+            <div class="question-set-choice-list">${(state.space.question_sets || []).map((set) => {
+              const selected = state.selectedQuestionSetIds.includes(Number(set.id));
+              const count = state.space.questions.filter((question) => Number(question.question_set_id) === Number(set.id)).length;
+              return `<label class="question-set-choice ${selected ? "active" : ""}">
+                <input type="checkbox" data-question-set="${set.id}" ${selected ? "checked" : ""}>
+                <span><b>${esc(set.name)}</b><small>${count} câu</small></span>
+              </label>`;
+            }).join("")}</div>
+          </section>`}
           <section class="setup-widget">
             <div class="widget-title"><h2>Số lượng câu hỏi</h2><p>Lấy ngẫu nhiên, không lặp câu.</p></div>
             <div class="choice-grid compact">${[30, 50, 70, 100].map((percent) => `<button class="${state.percent === percent ? "active" : ""}" data-percent="${percent}" ${realExam ? "disabled" : ""}><b>${percent}%</b><span>${calcQuestionCount(total, percent)} câu</span></button>`).join("")}</div>
@@ -346,6 +399,7 @@
     document.querySelectorAll("[data-percent]").forEach((btn) => btn.onclick = () => { state.percent = Number(btn.dataset.percent); renderSetup(); });
     document.querySelectorAll("[data-mode]").forEach((btn) => btn.onclick = () => { state.mode = btn.dataset.mode; renderSetup(); });
     document.querySelectorAll("[data-timer]").forEach((btn) => btn.onclick = () => { state.timerSeconds = btn.dataset.timer === "none" ? null : Number(btn.dataset.timer); renderSetup(); });
+    document.querySelectorAll("[data-question-set]").forEach((input) => input.onchange = () => toggleQuestionSetSelection(Number(input.dataset.questionSet)));
     const studentNameInput = document.getElementById("studentName");
     if (studentNameInput) studentNameInput.oninput = (event) => {
       state.studentName = event.target.value;
@@ -406,9 +460,9 @@
     return Math.max(0, Number(localStorage.getItem(realAttemptStorageKey(studentName)) || 0));
   }
 
-  function selectRealExamQuestionIds(questionCount) {
-    const multiQuestions = state.space.questions.filter((question) => question.type === "multi");
-    const singleQuestions = state.space.questions.filter((question) => question.type !== "multi");
+  function selectByMultiPercent(pool, questionCount) {
+    const multiQuestions = pool.filter((question) => question.type === "multi");
+    const singleQuestions = pool.filter((question) => question.type !== "multi");
     const multiPercent = Number(state.space.real_exam?.multi_percent || 50);
     const roundedMultiTarget = Math.round((multiQuestions.length * multiPercent / 100) / 2) * 2;
     const multiTarget = Math.min(multiQuestions.length, questionCount, roundedMultiTarget);
@@ -416,8 +470,32 @@
     const selectedSingle = shuffle(singleQuestions).slice(0, questionCount - selectedMulti.length);
     const remaining = questionCount - selectedMulti.length - selectedSingle.length;
     const selectedIds = new Set([...selectedMulti, ...selectedSingle].map((question) => question.id));
-    const fillers = shuffle(state.space.questions.filter((question) => !selectedIds.has(question.id))).slice(0, remaining);
+    const fillers = shuffle(pool.filter((question) => !selectedIds.has(question.id))).slice(0, remaining);
     return shuffle([...selectedMulti, ...selectedSingle, ...fillers].map((question) => question.id));
+  }
+
+  function selectRealExamQuestionIds(questionCount) {
+    const config = (state.space.real_exam?.question_sets || [])
+      .map((item) => ({ id: Number(item.id ?? item.question_set_id), percent: Number(item.percent) }))
+      .filter((item) => item.id && item.percent > 0);
+    if (!config.length) return selectByMultiPercent(questionPoolForMode(), questionCount);
+    const selected = [];
+    const selectedIds = new Set();
+    config.forEach((item, index) => {
+      const pool = state.space.questions.filter((question) => Number(question.question_set_id) === item.id && !selectedIds.has(question.id));
+      const count = index === config.length - 1
+        ? questionCount - selected.length
+        : Math.min(pool.length, Math.round(questionCount * item.percent / 100));
+      selectByMultiPercent(pool, Math.max(0, count)).forEach((id) => {
+        selectedIds.add(id);
+        selected.push(id);
+      });
+    });
+    if (selected.length < questionCount) {
+      const pool = questionPoolForMode().filter((question) => !selectedIds.has(question.id));
+      shuffle(pool).slice(0, questionCount - selected.length).forEach((question) => selected.push(question.id));
+    }
+    return shuffle(selected.slice(0, questionCount));
   }
 
   function shuffle(items) {
@@ -448,7 +526,12 @@
     state.studentName = name;
     localStorage.setItem("sq_student_name", name);
     localStorage.setItem(`sq_group_${state.slug}`, state.groupName);
-    const questionCount = calcQuestionCount(state.space.questions.length, state.percent);
+    const questionPool = questionPoolForMode();
+    const questionCount = calcQuestionCount(questionPool.length, state.percent);
+    if (!questionPool.length || !questionCount) {
+      showToast("Bộ câu hỏi đang chọn chưa có câu hỏi.", "warning");
+      return;
+    }
     if (state.mode === "real" && getRealAttemptCount(name) >= Number(state.space.real_exam?.max_attempts || 1)) {
       renderSetup();
       return;
@@ -473,7 +556,7 @@
       localStorage.setItem(realAttemptStorageKey(name), String(attempts + 1));
       state.selectedIds = selectRealExamQuestionIds(questionCount);
     } else {
-      state.selectedIds = shuffle(state.space.questions.map((question) => question.id)).slice(0, questionCount);
+      state.selectedIds = shuffle(questionPool.map((question) => question.id)).slice(0, questionCount);
     }
     state.current = 0;
     state.selections = {};
@@ -934,7 +1017,7 @@
         started_at: new Date(state.startedAt || Date.now()).toISOString(),
         score,
         total_questions: total,
-        bank_question_count: state.space.questions.length,
+        bank_question_count: questionPoolForMode().length || state.space.questions.length,
         correct_count: correctCount,
         wrong_count: wrongCount,
         multi_correct_count: breakdown.multiCorrectCount,
@@ -996,7 +1079,7 @@
     });
 
     const totalQuestions = state.selectedIds.length;
-    const bankQuestionCount = state.space.questions.length;
+    const bankQuestionCount = questionPoolForMode().length || state.space.questions.length;
     const durationSeconds = Math.max(0, Math.round((Date.now() - (state.startedAt || Date.now())) / 1000));
     const timerSeconds = Number(state.timerSeconds || state.space.timer_seconds || 0);
     const maximumDuration = totalQuestions * timerSeconds;

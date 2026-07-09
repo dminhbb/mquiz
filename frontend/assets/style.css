@@ -455,6 +455,56 @@ input {
   box-shadow: 0 12px 22px rgba(81,54,131,.22);
 }
 
+.question-set-widget {
+  grid-column: 1 / -1;
+}
+
+.question-set-choice-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+}
+
+.question-set-choice {
+  min-height: 62px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid rgba(59,39,101,.1);
+  border-radius: 8px;
+  padding: 12px;
+  background: #f8f7fb;
+  color: #3a2a5f;
+  cursor: pointer;
+}
+
+.question-set-choice input {
+  width: 18px;
+  height: 18px;
+  accent-color: #513683;
+}
+
+.question-set-choice > span {
+  display: grid;
+  gap: 2px;
+}
+
+.question-set-choice.active {
+  border-color: #513683;
+  background: #513683;
+  color: #fff;
+}
+
+.question-set-choice small {
+  color: #928b9e;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.question-set-choice.active small {
+  color: rgba(255,255,255,.78);
+}
+
 .setup-dashboard .choice-grid button.active:disabled {
   opacity: 1;
   cursor: default;

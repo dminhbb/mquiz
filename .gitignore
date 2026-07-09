@@ -6,6 +6,7 @@ backend/data/
 *.sqlite
 *.sqlite-shm
 *.sqlite-wal
+*.sql
 
 # Generated deployment files
 backend/dist/

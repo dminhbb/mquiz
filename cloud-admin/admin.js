@@ -173,54 +173,16 @@
         <td>${space.published ? "Published" : "Draft"}</td>
         <td class="settings-cell"><div class="space-row-actions">
           <button class="icon-button" data-share-space="${space.id}" title="Chia sẻ Space" aria-label="Chia sẻ Space"><i data-lucide="share-2"></i></button>
-          <details class="settings-menu">
-          <summary title="Cài đặt Space" aria-label="Cài đặt Space"><i data-lucide="settings"></i></summary>
-          <div class="settings-popover">
-            <button data-edit-space="${space.id}">Sửa thông tin space</button>
-            <button data-groups="${space.id}">Quản lý nhóm trong Space</button>
-            <button data-questions="${space.id}">Quản lý ngân hàng câu hỏi</button>
-            <button data-export-questions="${space.id}">Tải ngân hàng câu hỏi</button>
-            <button data-real="${space.id}">Chế độ thi thật</button>
-            <button data-export-real="${space.id}">Tải Excel dữ liệu Thi thật</button>
-            <button class="danger menu-delete" data-delete-space="${space.id}">Xóa space</button>
-          </div>
-          </details>
+          <button class="icon-button" data-space-settings="${space.id}" title="Cài đặt Space" aria-label="Cài đặt Space"><i data-lucide="settings"></i></button>
+          <button class="icon-button danger" data-delete-space="${space.id}" title="Xóa Space" aria-label="Xóa Space"><i data-lucide="trash-2"></i></button>
         </div></td>
       </tr>`).join("")}</tbody>
     </table></section>`;
     document.getElementById("addSpaceBtn").onclick = () => openSpace();
     bind("[data-share-space]", (button) => openShare(Number(button.dataset.shareSpace)));
-    bind("[data-edit-space]", (button) => openSpace(Number(button.dataset.editSpace)));
-    bind("[data-groups]", (button) => openGroups(Number(button.dataset.groups)));
-    bind("[data-questions]", (button) => openQuestions(Number(button.dataset.questions)));
-    bind("[data-export-questions]", (button) => {
-      const space = state.spaces.find((item) => item.id === Number(button.dataset.exportQuestions));
-      if (space) exportQuestions(space.id, space.slug);
-    });
-    bind("[data-real]", (button) => openRealExam(Number(button.dataset.real)));
-    bind("[data-export-real]", (button) => exportRealExamResults(Number(button.dataset.exportReal)));
+    bind("[data-space-settings]", (button) => openSpaceSettings(Number(button.dataset.spaceSettings)));
     bind("[data-delete-space]", (button) => deleteSpace(Number(button.dataset.deleteSpace)));
     window.lucide?.createIcons();
-    document.querySelectorAll(".settings-menu").forEach((menu) => {
-      menu.ontoggle = () => {
-        if (!menu.open) return;
-        document.querySelectorAll(".settings-menu[open]").forEach((other) => {
-          if (other !== menu) other.removeAttribute("open");
-        });
-        const trigger = menu.querySelector("summary");
-        const popover = menu.querySelector(".settings-popover");
-        const triggerBox = trigger.getBoundingClientRect();
-        const menuHeight = popover.offsetHeight;
-        const left = Math.max(8, Math.min(window.innerWidth - popover.offsetWidth - 8, triggerBox.right - popover.offsetWidth));
-        const hasRoomBelow = window.innerHeight - triggerBox.bottom >= menuHeight + 8;
-        popover.style.left = `${left}px`;
-        popover.style.top = `${hasRoomBelow ? triggerBox.bottom + 6 : Math.max(8, triggerBox.top - menuHeight - 6)}px`;
-      };
-    });
-    document.onclick = (event) => {
-      if (event.target.closest(".settings-menu")) return;
-      document.querySelectorAll(".settings-menu[open]").forEach((menu) => menu.removeAttribute("open"));
-    };
   }
 
   function bind(selector, handler) {
@@ -229,7 +191,8 @@
     });
   }
 
-  function openDialog(content) {
+  function openDialog(content, className = "") {
+    dialog.className = className;
     dialog.innerHTML = `<div class="dialog-body">${content}</div>`;
     dialog.showModal();
   }
@@ -237,6 +200,7 @@
   function closeDialog() {
     dialog.close();
     dialog.innerHTML = "";
+    dialog.className = "";
   }
 
   function openShare(id) {
@@ -271,6 +235,443 @@
     } else {
       document.getElementById("spaceQrCode").textContent = "Không thể tạo mã QR.";
     }
+  }
+
+  function openSpaceSettings(spaceId, activeTab = "info") {
+    const space = state.spaces.find((item) => item.id === spaceId);
+    if (!space) return setStatus("Space không tồn tại.", true);
+    const tabs = [
+      ["info", "Sửa thông tin Space"],
+      ["groups", "Quản lý nhóm trong Space"],
+      ["questions", "Quản lý Ngân hàng câu hỏi"],
+      ["real", "Quản lý Đợt thi thật"]
+    ];
+    openDialog(`<section class="space-settings">
+      <aside class="space-settings-nav">
+        <div>
+          <span class="settings-eyebrow">Cấu hình Space</span>
+          <h2>${esc(space.name)}</h2>
+          <p class="muted">/${esc(space.slug)}</p>
+        </div>
+        <nav>${tabs.map(([key, label]) => `<button type="button" class="${key === activeTab ? "active" : ""}" data-settings-tab="${key}">${label}</button>`).join("")}</nav>
+      </aside>
+      <main class="space-settings-main" id="spaceSettingsPanel"></main>
+    </section>`, "space-settings-dialog");
+    bind("[data-settings-tab]", (button) => renderSpaceSettingsPanel(spaceId, button.dataset.settingsTab));
+    window.lucide?.createIcons();
+    renderSpaceSettingsPanel(spaceId, activeTab);
+  }
+
+  async function renderSpaceSettingsPanel(spaceId, tab) {
+    const space = state.spaces.find((item) => item.id === spaceId);
+    const panel = document.getElementById("spaceSettingsPanel");
+    if (!space || !panel) return;
+    document.querySelectorAll("[data-settings-tab]").forEach((button) => {
+      button.classList.toggle("active", button.dataset.settingsTab === tab);
+    });
+    if (tab === "info") return renderSpaceInfoSettings(panel, spaceId, space);
+    if (tab === "groups") return renderGroupSettings(panel, spaceId, space);
+    if (tab === "questions") return renderQuestionSettings(panel, spaceId, space);
+    if (tab === "real") return renderRealExamSettings(panel, spaceId, space);
+  }
+
+  function renderSpaceInfoSettings(panel, id, space) {
+    panel.innerHTML = `<form id="spaceForm" class="grid compact-dialog-form settings-pane">
+      <h2>Sửa thông tin Space</h2>
+      <div class="grid two">
+        <label>Tên Space<input name="name" value="${esc(space.name)}" required></label>
+        <label>Timer mặc định<input name="timer_seconds" type="number" min="1" value="${space.timer_seconds}" required></label>
+      </div>
+      <div class="path-field-row">
+        <label>Đường dẫn<input id="spaceSlugInput" name="slug" value="${esc(space.slug)}" pattern="[a-z0-9-]+" required></label>
+        <div class="path-example path-example-inline"><span>Ví dụ</span><code>&lt;Đường dẫn của ứng dụng&gt;/&lt;Slug&gt;</code><small id="spaceUrlPreview">${esc(new URL(encodeURIComponent(space.slug || "slug"), quizBaseUrl).href)}</small></div>
+      </div>
+      <label class="switch publish-switch"><input name="published" type="checkbox" ${space.published ? "checked" : ""}><span class="switch-track"></span><span>Published</span></label>
+      <div class="settings-save"><button class="primary">Lưu</button><button type="button" data-close>Đóng</button></div>
+    </form>`;
+    bindPanelCloseButtons(panel);
+    document.getElementById("spaceSlugInput").oninput = (event) => {
+      document.getElementById("spaceUrlPreview").textContent = new URL(
+        encodeURIComponent(event.target.value || "slug"),
+        quizBaseUrl
+      ).href;
+    };
+    document.getElementById("spaceForm").onsubmit = (event) => saveSpace(event, id);
+  }
+
+  async function renderGroupSettings(panel, spaceId, space) {
+    panel.innerHTML = '<div class="panel">Đang tải nhóm...</div>';
+    const { data, error } = await client.from("groups").select("*").eq("space_id", spaceId).order("name");
+    if (error) return showDialogError(error.message);
+    const groups = [...(data || [])].sort((a, b) => a.name.localeCompare(b.name, "vi", { sensitivity: "base" }));
+    panel.innerHTML = `<section class="grid settings-pane">
+      <h2>Quản lý nhóm trong Space</h2>
+      <form id="addGroupForm" class="group-add-form">
+        <label>Thêm nhóm mới<input name="name" placeholder="Tên Group mới" required></label>
+        <button class="primary">Thêm</button>
+      </form>
+      <div id="groupList" class="group-settings-list">${groups.map((group) => `<div class="group-settings-item"><b>${esc(group.name)}</b><div class="group-card-actions"><button type="button" class="link-button" data-rename-group="${group.id}">Sửa</button><button type="button" class="link-button danger" data-delete-group="${group.id}">Xóa</button></div></div>`).join("") || '<p class="muted">Chưa có nhóm.</p>'}</div>
+      <div class="settings-save"><button type="button" class="primary" data-close>Lưu</button><button type="button" data-close>Đóng</button></div>
+    </section>`;
+    document.getElementById("addGroupForm").onsubmit = async (event) => {
+      event.preventDefault();
+      const name = new FormData(event.target).get("name").trim();
+      const { error: insertError } = await client.from("groups").insert({ space_id: spaceId, name });
+      if (insertError) return showDialogError(insertError.message);
+      await renderGroupSettings(panel, spaceId, space);
+    };
+    bind("[data-rename-group]", async (button) => {
+      const group = groups.find((item) => item.id === Number(button.dataset.renameGroup));
+      const name = prompt("Tên Group mới", group.name)?.trim();
+      if (!name) return;
+      const { error: updateError } = await client.from("groups").update({ name }).eq("id", group.id);
+      if (updateError) return showDialogError(updateError.message);
+      await renderGroupSettings(panel, spaceId, space);
+    });
+    bind("[data-delete-group]", async (button) => {
+      if (groups.length <= 1) return showDialogError("Space phải có ít nhất 1 Group.");
+      const group = groups.find((item) => item.id === Number(button.dataset.deleteGroup));
+      if (!group || !confirm("Xóa Group này? Dữ liệu đã dùng Group này sẽ được bỏ trống tên Group.")) return;
+      const { error: deleteError } = await client.from("groups").delete().eq("id", group.id);
+      if (deleteError) return showDialogError(deleteError.message);
+      await renderGroupSettings(panel, spaceId, space);
+    });
+    bindPanelCloseButtons(panel);
+  }
+
+  async function loadQuestionSets(spaceId) {
+    const [{ data: sets, error: setError }, { data: questions, error: questionError }] = await Promise.all([
+      client.from("question_sets").select("*").eq("space_id", spaceId).order("name"),
+      client.from("questions").select("id,type,question_set_id").eq("space_id", spaceId)
+    ]);
+    if (setError) throw setError;
+    if (questionError) throw questionError;
+    const counts = new Map();
+    (questions || []).forEach((question) => {
+      const key = question.question_set_id || 0;
+      const current = counts.get(key) || { total: 0, multi: 0 };
+      current.total += 1;
+      if (question.type === "multi") current.multi += 1;
+      counts.set(key, current);
+    });
+    return (sets || []).map((set) => ({ ...set, counts: counts.get(set.id) || { total: 0, multi: 0 } }));
+  }
+
+  function questionSetOptions(sets, selectedId) {
+    return sets.map((set) => `<option value="${set.id}" ${Number(selectedId) === Number(set.id) ? "selected" : ""}>${esc(set.name)} (${set.counts.total} câu)</option>`).join("");
+  }
+
+  async function renderQuestionSettings(panel, spaceId, space, selectedSetId = null) {
+    panel.innerHTML = '<div class="panel">Đang tải Bộ câu hỏi...</div>';
+    let sets;
+    try {
+      sets = await loadQuestionSets(spaceId);
+    } catch (error) {
+      return showDialogError(error.message || "Không tải được Bộ câu hỏi.");
+    }
+    const activeSet = sets.find((set) => Number(set.id) === Number(selectedSetId)) || sets[0] || null;
+    panel.innerHTML = `<section class="grid settings-pane">
+      <h2>Quản lý Ngân hàng câu hỏi</h2>
+      <section class="settings-section">
+        <div class="section-heading">
+          <div>
+            <h3>Quản lý danh mục Bộ câu hỏi</h3>
+            <p class="muted">${sets.length} bộ câu hỏi trong Space này.</p>
+          </div>
+          <form id="addQuestionSetForm" class="inline-create-form">
+            <input name="name" placeholder="Tên Bộ câu hỏi mới" required>
+            <button class="primary">Thêm</button>
+          </form>
+        </div>
+        <div class="question-set-list">${sets.map((set) => `<div class="question-set-item ${activeSet?.id === set.id ? "active" : ""}">
+          <button type="button" class="question-set-main" data-select-question-set="${set.id}">
+            <b>${esc(set.name)}</b>
+            <span>${set.counts.total} câu · ${set.counts.multi} câu nhiều đáp án</span>
+          </button>
+          <div class="group-card-actions">
+            <button type="button" class="link-button" data-rename-question-set="${set.id}">Sửa</button>
+            <button type="button" class="link-button danger" data-delete-question-set="${set.id}">Xóa</button>
+          </div>
+        </div>`).join("") || '<p class="muted">Chưa có Bộ câu hỏi.</p>'}</div>
+      </section>
+      <div class="dash-separator" aria-hidden="true"></div>
+      <section class="settings-section">
+        <div class="section-heading">
+          <div>
+            <h3>Quản lý Ngân hàng câu hỏi</h3>
+            <p class="muted">${Number(space.counts?.total || 0)} câu hỏi · ${Number(space.counts?.multi || 0)} câu nhiều đáp án</p>
+          </div>
+          <button type="button" id="exportQuestionsBtn" ${activeSet ? "" : "disabled"}>Tải về ngân hàng câu hỏi</button>
+        </div>
+        <label>Bộ câu hỏi<select id="questionSetSelect" ${activeSet ? "" : "disabled"}>${questionSetOptions(sets, activeSet?.id)}</select></label>
+      </section>
+      <div class="dash-separator" aria-hidden="true"></div>
+      <section class="settings-section">
+        <h3>Upload câu hỏi</h3>
+        <input id="csvFile" type="file" accept=".csv,text/csv" ${activeSet ? "" : "disabled"}>
+        <div id="csvPreview" class="muted"></div>
+        <div class="actions">
+          <button type="button" id="previewCsvBtn" ${activeSet ? "" : "disabled"}>Preview</button>
+        </div>
+      </section>
+      <div class="dash-separator" aria-hidden="true"></div>
+      <section class="settings-section">
+        <div class="section-heading">
+          <div>
+            <h3>Xóa ngân hàng câu hỏi</h3>
+            <p class="muted">Xóa toàn bộ câu hỏi hiện có trong Space này.</p>
+          </div>
+          <button type="button" class="danger" id="deleteQuestionsBtn" ${activeSet ? "" : "disabled"}>Xóa toàn bộ câu hỏi</button>
+        </div>
+      </section>
+      <div class="settings-save"><button type="button" class="primary" id="importCsvBtn" disabled>Lưu</button><button type="button" data-close>Đóng</button></div>
+    </section>`;
+    let parsedQuestions = [];
+    document.getElementById("addQuestionSetForm").onsubmit = async (event) => {
+      event.preventDefault();
+      const name = new FormData(event.target).get("name").trim();
+      const { data, error } = await client.from("question_sets").insert({ space_id: spaceId, name }).select("id").single();
+      if (error) return showDialogError(error.message);
+      await renderQuestionSettings(panel, spaceId, space, data.id);
+    };
+    bind("[data-select-question-set]", (button) => renderQuestionSettings(panel, spaceId, space, Number(button.dataset.selectQuestionSet)));
+    bind("[data-rename-question-set]", async (button) => {
+      const set = sets.find((item) => item.id === Number(button.dataset.renameQuestionSet));
+      const name = prompt("Tên Bộ câu hỏi mới", set?.name || "")?.trim();
+      if (!name || !set) return;
+      const { error } = await client.from("question_sets").update({ name }).eq("id", set.id);
+      if (error) return showDialogError(error.message);
+      await renderQuestionSettings(panel, spaceId, space, set.id);
+    });
+    bind("[data-delete-question-set]", async (button) => {
+      if (sets.length <= 1) return showDialogError("Space phải có ít nhất 1 Bộ câu hỏi.");
+      const set = sets.find((item) => item.id === Number(button.dataset.deleteQuestionSet));
+      if (!set || !confirm("Xóa Bộ câu hỏi này? Câu hỏi thuộc bộ này sẽ không còn phân loại.")) return;
+      const { error } = await client.from("question_sets").delete().eq("id", set.id);
+      if (error) return showDialogError(error.message);
+      await renderQuestionSettings(panel, spaceId, space);
+    });
+    const select = document.getElementById("questionSetSelect");
+    if (select) select.onchange = () => renderQuestionSettings(panel, spaceId, space, Number(select.value));
+    document.getElementById("previewCsvBtn").onclick = () => {
+      const file = document.getElementById("csvFile").files[0];
+      if (!file) return showDialogError("Chọn file CSV trước.");
+      Papa.parse(file, {
+        complete: (result) => {
+          try {
+            parsedQuestions = parseQuestions(result.data);
+            document.getElementById("csvPreview").textContent = `Hợp lệ: ${parsedQuestions.length} câu hỏi.`;
+            document.getElementById("importCsvBtn").disabled = false;
+          } catch (error) {
+            parsedQuestions = [];
+            showDialogError(error.message);
+          }
+        }
+      });
+    };
+    document.getElementById("importCsvBtn").onclick = () => importQuestions(spaceId, parsedQuestions, activeSet?.id);
+    document.getElementById("exportQuestionsBtn").onclick = () => exportQuestions(spaceId, space.slug, activeSet?.id);
+    document.getElementById("deleteQuestionsBtn").onclick = () => deleteAllQuestions(spaceId, activeSet?.id);
+    bindPanelCloseButtons(panel);
+  }
+
+  async function renderRealExamSettings(panel, id, space) {
+    panel.innerHTML = '<div class="panel">Đang tải cấu hình Đợt thi thật...</div>';
+    let sets;
+    try {
+      sets = await loadQuestionSets(id);
+    } catch (error) {
+      return showDialogError(error.message || "Không tải được Bộ câu hỏi.");
+    }
+    const savedConfig = Array.isArray(space.real_question_sets) ? space.real_question_sets : [];
+    const selectedConfig = normalizeRealSetConfig(sets, savedConfig);
+    panel.innerHTML = `<form id="realForm" class="grid compact-dialog-form real-exam-form settings-pane">
+      <h2>Quản lý Đợt thi thật</h2>
+      <section class="settings-section">
+        <div class="real-exam-header">
+          <h3>Vùng cấu hình đợt thi thật</h3>
+          <label class="switch"><input name="enabled" type="checkbox" ${space.real_exam_enabled ? "checked" : ""}><span class="switch-track"></span><span>Bật Thi thật</span></label>
+        </div>
+        <label>Tên của đợt thi thật<input name="real_exam_name" value="${esc(space.real_exam_name || "")}" placeholder="Ví dụ: Thi thật tháng 07/2026"></label>
+        <div class="settings-section real-set-section">
+          <h3>Lựa chọn ngân hàng câu hỏi</h3>
+          <div class="real-set-list">${sets.map((set) => {
+            const config = selectedConfig.find((item) => Number(item.id) === Number(set.id));
+            const selected = Boolean(config);
+            return `<div class="real-set-item">
+              <label class="switch"><input type="checkbox" data-real-set-check="${set.id}" ${selected ? "checked" : ""}><span class="switch-track"></span><span>${esc(set.name)}</span></label>
+              <span class="muted">${set.counts.total} câu · ${set.counts.multi} câu nhiều đáp án</span>
+              <label>Tỷ lệ câu (%)<input type="number" min="0" max="100" step="1" data-real-set-percent="${set.id}" value="${Number(config?.percent || 0)}" ${selected ? "" : "disabled"}></label>
+            </div>`;
+          }).join("") || '<p class="muted">Chưa có Bộ câu hỏi.</p>'}</div>
+          <p class="muted" id="realSetTotalHint"></p>
+        </div>
+        <div class="grid two real-exam-row">
+          ${selectField("question_percent", "Số lượng câu hỏi", [30,50,70,100], space.real_question_percent, "%")}
+          ${selectField("timer_seconds", "Thời gian mỗi câu", [45,60,90,120], space.real_timer_seconds, "s")}
+        </div>
+        <div class="grid two real-exam-row">
+          ${selectField("multi_percent", "Tỷ lệ câu nhiều đáp án", [30,50,70,100], space.real_multi_percent, "%")}
+          ${selectField("max_attempts", "Số lần thi tối đa", [1,2,3,4,5], space.real_max_attempts, "")}
+        </div>
+        <div class="grid two real-exam-row">
+          <label>Ngày bắt đầu<input name="start_date" type="date" value="${toLocalDateInput(space.real_start_at)}"></label>
+          <label>Giờ bắt đầu<select name="start_time">${timeOptions(toLocalTimeText(space.real_start_at))}</select></label>
+          <label>Ngày kết thúc<input name="end_date" type="date" value="${toLocalDateInput(space.real_end_at)}"></label>
+          <label>Giờ kết thúc<select name="end_time">${timeOptions(toLocalTimeText(space.real_end_at))}</select></label>
+        </div>
+        <div class="scoring-field-row">
+          <label>Cách tính điểm<select name="scoring_method">
+            <option value="1" ${Number(space.real_scoring_method || 1) === 1 ? "selected" : ""}>Cách tính điểm 1</option>
+            <option value="2" ${Number(space.real_scoring_method || 1) === 2 ? "selected" : ""}>Cách tính điểm 2</option>
+          </select></label>
+          <div class="scoring-help">
+            <button type="button" class="scoring-help-button" aria-label="Xem chi tiết cách tính điểm" aria-expanded="false">?</button>
+            <div class="scoring-tooltip" role="tooltip">${scoringMethodTooltip(Number(space.real_scoring_method || 1))}</div>
+          </div>
+        </div>
+      </section>
+      <div class="dash-separator" aria-hidden="true"></div>
+      <section class="settings-section">
+        <div class="section-heading">
+          <div>
+            <h3>Vùng Kết quả đợt thi thật gần nhất</h3>
+            <p class="muted">15 kết quả cao nhất của học viên.</p>
+          </div>
+          <button type="button" id="exportRealExamBtn">Tải Dữ liệu đợt thi thật</button>
+          <button type="button" id="viewRealExamResultsBtn">Xem Kết quả thi thật</button>
+        </div>
+        <div id="realExamTopResults" class="real-results-list muted">Bấm “Xem Kết quả thi thật” để tải dữ liệu.</div>
+      </section>
+      <div class="settings-save"><button class="primary">Lưu</button><button type="button" data-close>Đóng</button></div>
+    </form>`;
+    wireRealExamForm(id);
+    document.getElementById("exportRealExamBtn").onclick = () => exportRealExamResults(id);
+    document.getElementById("viewRealExamResultsBtn").onclick = () => loadLatestRealExamResults(id);
+    bindPanelCloseButtons(panel);
+    wireRealSetControls();
+  }
+
+  function normalizeRealSetConfig(sets, config) {
+    const valid = (config || [])
+      .map((item) => ({ id: Number(item.id ?? item.question_set_id), percent: Number(item.percent) }))
+      .filter((item) => sets.some((set) => Number(set.id) === item.id));
+    const base = valid.length ? valid : sets.slice(0, 1).map((set) => ({ id: Number(set.id), percent: 100 }));
+    return normalizePercentConfig(base);
+  }
+
+  function normalizePercentConfig(items, changedId = null) {
+    if (!items.length) return [];
+    const clampPercent = (value) => Math.min(100, Math.max(0, Math.round(Number(value) || 0)));
+    const normalized = items.map((item) => ({ ...item, percent: clampPercent(item.percent) }));
+    if (normalized.length === 1) return [{ ...normalized[0], percent: 100 }];
+    const locked = normalized.find((item) => Number(item.id) === Number(changedId));
+    const flexible = locked ? normalized.filter((item) => Number(item.id) !== Number(changedId)) : normalized;
+    const target = locked ? Math.max(0, 100 - locked.percent) : 100;
+    const currentTotal = flexible.reduce((sum, item) => sum + item.percent, 0);
+    let remaining = target;
+    flexible.forEach((item, index) => {
+      const isLast = index === flexible.length - 1;
+      const next = isLast
+        ? remaining
+        : (currentTotal ? Math.round(target * item.percent / currentTotal) : Math.floor(target / flexible.length));
+      item.percent = Math.min(100, Math.max(0, next));
+      remaining -= item.percent;
+    });
+    return normalized;
+  }
+
+  function wireRealSetControls() {
+    const sync = (changedId = null) => {
+      const checked = [...document.querySelectorAll("[data-real-set-check]:checked")].map((input) => ({
+        id: Number(input.dataset.realSetCheck),
+        percent: Number(document.querySelector(`[data-real-set-percent="${input.dataset.realSetCheck}"]`)?.value || 0)
+      }));
+      const normalized = normalizePercentConfig(checked, changedId);
+      document.querySelectorAll("[data-real-set-percent]").forEach((input) => {
+        const item = normalized.find((config) => Number(config.id) === Number(input.dataset.realSetPercent));
+        input.disabled = !item;
+        if (item) input.value = String(item.percent);
+        else input.value = "0";
+      });
+      const total = normalized.reduce((sum, item) => sum + item.percent, 0);
+      const hint = document.getElementById("realSetTotalHint");
+      if (hint) hint.textContent = normalized.length ? `Tổng tỷ lệ đang chọn: ${total}%` : "Chọn ít nhất một Bộ câu hỏi khi bật Thi thật.";
+    };
+    document.querySelectorAll("[data-real-set-check]").forEach((input) => {
+      input.onchange = () => sync();
+    });
+    document.querySelectorAll("[data-real-set-percent]").forEach((input) => {
+      input.oninput = () => sync(Number(input.dataset.realSetPercent));
+    });
+    sync();
+  }
+
+  function bindPanelCloseButtons(panel) {
+    panel.querySelectorAll("[data-close]").forEach((button) => {
+      button.onclick = closeDialog;
+    });
+  }
+
+  async function loadLatestRealExamResults(id) {
+    const target = document.getElementById("realExamTopResults");
+    const space = state.spaces.find((item) => item.id === id);
+    if (!target || !space) return;
+    try {
+      const { data, error } = await client.rpc("export_real_exam_results", {
+        requested_slug: space.slug,
+        exam_limit: 1
+      });
+      if (error) throw error;
+      const rows = (data || [])
+        .filter((row) => Number(row.exam_rank || 1) === 1)
+        .sort((a, b) =>
+          Number(b.score) - Number(a.score)
+          || Number(a.duration_seconds) - Number(b.duration_seconds)
+          || new Date(b.submitted_at) - new Date(a.submitted_at)
+        )
+        .slice(0, 15);
+      if (!rows.length) {
+        target.innerHTML = '<div class="empty-state">Chưa có kết quả Thi thật gần nhất.</div>';
+        return;
+      }
+      target.classList.remove("muted");
+      target.innerHTML = `<table class="compact-results-table">
+        <thead><tr><th>#</th><th>Học viên</th><th>Group</th><th>Điểm</th><th>Đúng</th><th>Thời gian</th><th>Nộp bài</th></tr></thead>
+        <tbody>${rows.map((row, index) => `<tr>
+          <td>${index + 1}</td>
+          <td><b>${esc(row.student_name || "")}</b></td>
+          <td>${esc(row.group_name || "Chưa phân nhóm")}</td>
+          <td>${Number(row.score).toFixed(2)}</td>
+          <td>${Number(row.correct_count || 0)}/${Number(row.total_questions || 0)}</td>
+          <td>${formatExportDuration(row.duration_seconds)}</td>
+          <td>${formatExportDateTime(row.submitted_at)}</td>
+        </tr>`).join("")}</tbody>
+      </table>`;
+    } catch (error) {
+      target.innerHTML = `<div class="status error">${esc(error.message || "Không thể tải kết quả Thi thật.")}</div>`;
+    }
+  }
+
+  function wireRealExamForm(id) {
+    const form = document.getElementById("realForm");
+    const scoringSelect = form.querySelector('[name="scoring_method"]');
+    const scoringHelp = form.querySelector(".scoring-help");
+    const scoringHelpButton = form.querySelector(".scoring-help-button");
+    const scoringTooltip = form.querySelector(".scoring-tooltip");
+    scoringSelect.onchange = () => {
+      scoringTooltip.innerHTML = scoringMethodTooltip(Number(scoringSelect.value));
+    };
+    scoringHelpButton.onclick = () => {
+      const open = scoringHelp.classList.toggle("open");
+      scoringHelpButton.setAttribute("aria-expanded", String(open));
+    };
+    form.onclick = (event) => {
+      if (event.target.closest(".scoring-help")) return;
+      scoringHelp.classList.remove("open");
+      scoringHelpButton.setAttribute("aria-expanded", "false");
+    };
+    form.onsubmit = (event) => saveRealExam(event, id);
   }
 
   function openSpace(id) {
@@ -317,6 +718,8 @@
     if (!id) {
       const { error } = await client.from("groups").insert({ space_id: result.data.id, name: payload.name });
       if (error) return showDialogError(error.message);
+      const { error: setError } = await client.from("question_sets").insert({ space_id: result.data.id, name: "Mặc định" });
+      if (setError) return showDialogError(setError.message);
     }
     closeDialog();
     await renderSpaces();
@@ -334,13 +737,13 @@
     if (!space) return setStatus("Space không tồn tại.", true);
     if (!window.XLSX) return setStatus("Không thể khởi tạo chức năng xuất Excel.", true);
 
-    const button = document.querySelector(`[data-export-real="${id}"]`);
+    const button = document.querySelector(`[data-export-real="${id}"]`)
+      || document.getElementById("exportRealExamBtn");
+    const buttonLabel = button?.textContent || "Tải Excel dữ liệu Thi thật";
     if (button) {
       button.disabled = true;
       button.textContent = "Đang tạo Excel...";
     }
-    document.querySelectorAll(".settings-menu[open]").forEach((menu) => menu.removeAttribute("open"));
-
     try {
       const { data, error } = await client.rpc("export_real_exam_results", {
         requested_slug: space.slug,
@@ -422,7 +825,7 @@
     } finally {
       if (button?.isConnected) {
         button.disabled = false;
-        button.textContent = "Tải Excel dữ liệu Thi thật";
+        button.textContent = buttonLabel;
       }
     }
   }
@@ -526,20 +929,22 @@
     document.getElementById("deleteQuestionsBtn").onclick = () => deleteAllQuestions(spaceId);
   }
 
-  async function exportQuestions(spaceId, spaceSlug) {
+  async function exportQuestions(spaceId, spaceSlug, questionSetId = null) {
     const button = document.querySelector(`[data-export-questions="${spaceId}"]`)
       || document.getElementById("exportQuestionsBtn");
+    const buttonLabel = button?.textContent || "Tải ngân hàng câu hỏi";
     if (button) {
       button.disabled = true;
       button.textContent = "Đang tạo CSV...";
     }
-    document.querySelectorAll(".settings-menu[open]").forEach((menu) => menu.removeAttribute("open"));
     try {
-      const { data, error } = await client
+      let query = client
         .from("questions")
         .select("order_no,type,content,options_json,correct_json")
         .eq("space_id", spaceId)
         .order("order_no");
+      if (questionSetId) query = query.eq("question_set_id", questionSetId);
+      const { data, error } = await query;
       if (error) throw error;
       if (!data?.length) throw new Error("Space chưa có câu hỏi để tải.");
 
@@ -573,7 +978,7 @@
     } finally {
       if (button?.isConnected) {
         button.disabled = false;
-        button.textContent = "Tải ngân hàng câu hỏi";
+        button.textContent = buttonLabel;
       }
     }
   }
@@ -608,11 +1013,11 @@
     });
   }
 
-  async function importQuestions(spaceId, questions) {
+  async function importQuestions(spaceId, questions, questionSetId = null) {
     if (!questions.length) return;
     const { data: current } = await client.from("questions").select("order_no").eq("space_id", spaceId).order("order_no", { ascending: false }).limit(1);
     const maxOrder = current?.[0]?.order_no || 0;
-    const rows = questions.map((question, index) => ({ ...question, space_id: spaceId, order_no: maxOrder + index + 1 }));
+    const rows = questions.map((question, index) => ({ ...question, space_id: spaceId, question_set_id: questionSetId, order_no: maxOrder + index + 1 }));
     const { error } = await client.from("questions").insert(rows);
     if (error) return showDialogError(error.message);
     closeDialog();
@@ -620,9 +1025,11 @@
     await renderSpaces();
   }
 
-  async function deleteAllQuestions(spaceId) {
-    if (!confirm("Xóa toàn bộ câu hỏi của Space? Thao tác không thể hoàn tác.")) return;
-    const { error } = await client.from("questions").delete().eq("space_id", spaceId);
+  async function deleteAllQuestions(spaceId, questionSetId = null) {
+    if (!confirm("Xóa toàn bộ câu hỏi của Bộ câu hỏi đang chọn? Thao tác không thể hoàn tác.")) return;
+    let query = client.from("questions").delete().eq("space_id", spaceId);
+    if (questionSetId) query = query.eq("question_set_id", questionSetId);
+    const { error } = await query;
     if (error) return showDialogError(error.message);
     closeDialog();
     setStatus("Đã xóa toàn bộ câu hỏi.");
@@ -661,24 +1068,7 @@
       <div class="actions"><button class="primary">Lưu</button><button type="button" data-close>Hủy</button></div>
     </form>`);
     document.querySelector("[data-close]").onclick = closeDialog;
-    const form = document.getElementById("realForm");
-    const scoringSelect = form.querySelector('[name="scoring_method"]');
-    const scoringHelp = form.querySelector(".scoring-help");
-    const scoringHelpButton = form.querySelector(".scoring-help-button");
-    const scoringTooltip = form.querySelector(".scoring-tooltip");
-    scoringSelect.onchange = () => {
-      scoringTooltip.innerHTML = scoringMethodTooltip(Number(scoringSelect.value));
-    };
-    scoringHelpButton.onclick = () => {
-      const open = scoringHelp.classList.toggle("open");
-      scoringHelpButton.setAttribute("aria-expanded", String(open));
-    };
-    form.onclick = (event) => {
-      if (event.target.closest(".scoring-help")) return;
-      scoringHelp.classList.remove("open");
-      scoringHelpButton.setAttribute("aria-expanded", "false");
-    };
-    form.onsubmit = (event) => saveRealExam(event, id);
+    wireRealExamForm(id);
   }
 
   function scoringMethodTooltip(method) {
@@ -698,29 +1088,99 @@
     return new Date(date.getTime() - offset).toISOString().slice(0, 16);
   }
 
+  function toLocalDateText(value) {
+    if (!value) return "";
+    const date = new Date(value);
+    if (!Number.isFinite(date.getTime())) return "";
+    return date.toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric" });
+  }
+
+  function toLocalDateInput(value) {
+    if (!value) return "";
+    const date = new Date(value);
+    if (!Number.isFinite(date.getTime())) return "";
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+  }
+
+  function toLocalTimeText(value) {
+    if (!value) return "";
+    const date = new Date(value);
+    if (!Number.isFinite(date.getTime())) return "";
+    return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+  }
+
+  function timeOptions(selectedValue) {
+    const selected = selectedValue || "00:00";
+    const options = [];
+    for (let hour = 0; hour < 24; hour += 1) {
+      for (let minute = 0; minute < 60; minute += 5) {
+        const value = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+        options.push(`<option value="${value}" ${value === selected ? "selected" : ""}>${value}</option>`);
+      }
+    }
+    return options.join("");
+  }
+
+  function parseLocalDateTime(dateValue, timeValue) {
+    const dateText = String(dateValue || "").trim();
+    const timeText = String(timeValue || "").trim();
+    if (!dateText && !timeText) return null;
+    const slashDate = dateText.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    const isoDate = dateText.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    const match = slashDate || (isoDate ? [isoDate[0], isoDate[3], isoDate[2], isoDate[1]] : null);
+    if (!match || !/^\d{2}:\d{2}$/.test(timeText)) return "invalid";
+    const [, day, month, year] = match;
+    const [hour, minute] = timeText.split(":").map(Number);
+    if (minute % 5 !== 0) return "invalid";
+    const date = new Date(Number(year), Number(month) - 1, Number(day), hour, minute, 0, 0);
+    if (
+      date.getFullYear() !== Number(year)
+      || date.getMonth() !== Number(month) - 1
+      || date.getDate() !== Number(day)
+    ) return "invalid";
+    return Number.isFinite(date.getTime()) ? date.toISOString() : "invalid";
+  }
+
+  function readRealQuestionSetConfig() {
+    if (!document.querySelector("[data-real-set-check]")) return null;
+    const rows = [...document.querySelectorAll("[data-real-set-check]:checked")].map((input) => ({
+      id: Number(input.dataset.realSetCheck),
+      percent: Number(document.querySelector(`[data-real-set-percent="${input.dataset.realSetCheck}"]`)?.value || 0)
+    }));
+    return normalizePercentConfig(rows);
+  }
+
   async function saveRealExam(event, id) {
     event.preventDefault();
     const space = state.spaces.find((item) => item.id === id);
     if (!space) return showDialogError("Space không tồn tại.");
     const form = new FormData(event.target);
     const enabled = form.has("enabled");
-    const start = form.get("start_at");
-    const end = form.get("end_at");
-    if (enabled && (!start || !end || new Date(start) >= new Date(end))) return showDialogError("Khoảng thời gian Thi thật không hợp lệ.");
-    const startIso = start ? new Date(start).toISOString() : null;
-    const endIso = end ? new Date(end).toISOString() : null;
+    const startIso = form.has("start_date")
+      ? parseLocalDateTime(form.get("start_date"), form.get("start_time"))
+      : (form.get("start_at") ? new Date(form.get("start_at")).toISOString() : null);
+    const endIso = form.has("end_date")
+      ? parseLocalDateTime(form.get("end_date"), form.get("end_time"))
+      : (form.get("end_at") ? new Date(form.get("end_at")).toISOString() : null);
+    if (startIso === "invalid" || endIso === "invalid") return showDialogError("Ngày giờ Thi thật không hợp lệ. Phút phải là bội số của 5.");
+    if (enabled && (!startIso || !endIso || new Date(startIso) >= new Date(endIso))) return showDialogError("Khoảng thời gian Thi thật không hợp lệ.");
+    const realQuestionSets = readRealQuestionSetConfig();
+    if (enabled && realQuestionSets && !realQuestionSets.length) return showDialogError("Chọn ít nhất một Bộ câu hỏi cho Thi thật.");
     const startsNewExam = enabled && (
       !space.real_exam_enabled
       || new Date(space.real_start_at || 0).getTime() !== new Date(startIso || 0).getTime()
       || new Date(space.real_end_at || 0).getTime() !== new Date(endIso || 0).getTime()
+      || (realQuestionSets && JSON.stringify(realQuestionSets) !== JSON.stringify(space.real_question_sets || []))
     );
     const payload = {
+      real_exam_name: form.get("real_exam_name")?.trim() || null,
       real_exam_enabled: enabled,
       real_scoring_method: Number(form.get("scoring_method")),
       real_question_percent: Number(form.get("question_percent")),
       real_timer_seconds: Number(form.get("timer_seconds")),
       real_multi_percent: Number(form.get("multi_percent")),
       real_max_attempts: Number(form.get("max_attempts")),
+      ...(realQuestionSets ? { real_question_sets: realQuestionSets } : {}),
       real_exam_version: startsNewExam || !space.real_exam_version ? crypto.randomUUID() : space.real_exam_version,
       real_start_at: startIso,
       real_end_at: endIso,
