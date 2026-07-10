@@ -1112,8 +1112,8 @@
   function timeOptions(selectedValue) {
     const selected = selectedValue || "00:00";
     const options = [];
-    for (let hour = 0; hour < 24; hour += 1) {
-      for (let minute = 0; minute < 60; minute += 5) {
+    for (let hour = 7; hour < 23; hour += 1) {
+      for (let minute = 0; minute < 60; minute += 15) {
         const value = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
         options.push(`<option value="${value}" ${value === selected ? "selected" : ""}>${value}</option>`);
       }

@@ -165,7 +165,13 @@
       }))
       : [];
     state.space.groups = groups;
-    const questionSets = Array.isArray(state.space.question_sets) ? state.space.question_sets : [];
+    let questionSets = Array.isArray(state.space.question_sets) && state.space.question_sets.length
+      ? state.space.question_sets
+      : [{ id: 0, name: "Mặc định" }];
+    const hasUnassignedQuestions = (state.space.questions || []).some((question) => !Number(question.question_set_id || 0));
+    if (hasUnassignedQuestions && !questionSets.some((set) => Number(set.id) === 0)) {
+      questionSets = [{ id: 0, name: "Mặc định" }, ...questionSets];
+    }
     state.space.question_sets = questionSets;
     const savedSetIds = (localStorage.getItem(`sq_question_sets_${state.slug}`) || "")
       .split(",")
@@ -262,7 +268,7 @@
   function questionPoolForMode() {
     const ids = new Set(selectedQuestionSetIdsForMode());
     if (!ids.size) return state.space.questions;
-    return state.space.questions.filter((question) => ids.has(Number(question.question_set_id)));
+    return state.space.questions.filter((question) => ids.has(Number(question.question_set_id || 0)));
   }
 
   function toggleQuestionSetSelection(id) {
@@ -371,17 +377,18 @@
               </select>
             </label>
           </section>
-          ${realExam ? "" : `<section class="setup-widget question-set-widget">
-            <div class="widget-title"><h2>Bộ câu hỏi</h2><p>Có thể chọn một hoặc nhiều Bộ câu hỏi.</p></div>
+          <section class="setup-widget question-set-widget">
+            <div class="widget-title"><h2>Bộ câu hỏi</h2><p>${realExam ? "Bộ câu hỏi do Admin cấu hình cho Thi thật." : "Có thể chọn một hoặc nhiều Bộ câu hỏi."}</p></div>
             <div class="question-set-choice-list">${(state.space.question_sets || []).map((set) => {
-              const selected = state.selectedQuestionSetIds.includes(Number(set.id));
-              const count = state.space.questions.filter((question) => Number(question.question_set_id) === Number(set.id)).length;
+              const selectedIds = realExam ? selectedQuestionSetIdsForMode() : state.selectedQuestionSetIds;
+              const selected = selectedIds.includes(Number(set.id));
+              const count = state.space.questions.filter((question) => Number(question.question_set_id || 0) === Number(set.id)).length;
               return `<label class="question-set-choice ${selected ? "active" : ""}">
-                <input type="checkbox" data-question-set="${set.id}" ${selected ? "checked" : ""}>
+                <input type="checkbox" data-question-set="${set.id}" ${selected ? "checked" : ""} ${realExam ? "disabled" : ""}>
                 <span><b>${esc(set.name)}</b><small>${count} câu</small></span>
               </label>`;
             }).join("")}</div>
-          </section>`}
+          </section>
           <section class="setup-widget">
             <div class="widget-title"><h2>Số lượng câu hỏi</h2><p>Lấy ngẫu nhiên, không lặp câu.</p></div>
             <div class="choice-grid compact">${[30, 50, 70, 100].map((percent) => `<button class="${state.percent === percent ? "active" : ""}" data-percent="${percent}" ${realExam ? "disabled" : ""}><b>${percent}%</b><span>${calcQuestionCount(total, percent)} câu</span></button>`).join("")}</div>
