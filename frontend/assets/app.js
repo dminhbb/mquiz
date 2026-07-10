@@ -179,7 +179,7 @@
       .filter((id) => questionSets.some((set) => Number(set.id) === id));
     state.selectedQuestionSetIds = savedSetIds.length ? savedSetIds : questionSets.map((set) => Number(set.id));
     const savedGroup = localStorage.getItem(`sq_group_${state.slug}`) || "";
-    state.groupName = groups.includes(savedGroup) ? savedGroup : (groups[0] || "");
+    state.groupName = groups.includes(savedGroup) ? savedGroup : "";
     if (state.space.real_exam?.enabled) {
       state.mode = "real";
       state.percent = Number(state.space.real_exam.question_percent || 50);
@@ -191,7 +191,7 @@
   }
 
   function renderShell(content) {
-    app.innerHTML = `<div class="shell"><header class="topbar"><div class="brand">vn.Quiz</div><button class="ghost" id="themeBtn">${state.theme === "dark" ? "Light" : "Dark"}</button></header><main>${content}</main><footer class="app-copyright">vn.Quiz (C) 2026 | minhnd7</footer></div>`;
+    app.innerHTML = `<div class="shell"><header class="topbar"><div class="brand">mquiz</div><button class="ghost" id="themeBtn">${state.theme === "dark" ? "Light" : "Dark"}</button></header><main>${content}</main><footer class="app-copyright">mquiz (C) 2026 | minhnd7</footer></div>`;
     document.getElementById("themeBtn").onclick = toggleTheme;
   }
 
@@ -240,7 +240,7 @@
 
   function renderWelcome() {
     stopTimer();
-    renderShell(`<section class="screen center"><div><h1>Chào mừng tới hệ thống vn.Quiz</h1><p class="muted">Vui lòng sử dụng đường dẫn quiz đã được cung cấp.</p></div></section>`);
+    renderShell(`<section class="screen center"><div><h1>Chào mừng tới hệ thống mquiz</h1><p class="muted">Vui lòng sử dụng đường dẫn quiz đã được cung cấp.</p></div></section>`);
   }
 
   function renderNotFound() {
@@ -333,7 +333,7 @@
     const realBlocked = realExhausted || realTimeClosed;
     renderShell(`<section class="leaderboard-shell setup-dashboard">
       <aside class="setup-sidebar">
-        <div class="setup-logo"><span>vQ</span><b>vn.Quiz</b></div>
+        <div class="setup-logo"><span>mq</span><b>mquiz</b></div>
         <nav class="setup-nav">
           ${realBlocked ? "" : `<button class="active" type="button"><span></span>Làm bài</button>`}
           <button id="leaderboardBtn" class="${realBlocked ? "active" : ""}" type="button"><span></span>Kết quả</button>
@@ -364,15 +364,16 @@
         </section>
         <div class="setup-board">
           <section class="setup-widget">
-            <div class="widget-title"><h2>Tên học viên</h2><p>Dùng để lưu kết quả và xếp hạng.</p></div>
+            <div class="widget-title"><h2>Tên học viên <span style="color: #b91c1c;">*</span></h2><p>Dùng để lưu kết quả và xếp hạng.</p></div>
             <label class="student-field">
-              <input id="studentName" maxlength="80" value="${esc(state.studentName)}" placeholder="Nhập tên học viên">
+              <input id="studentName" maxlength="80" value="${esc(state.studentName)}" placeholder="Nhập tên học viên" required>
             </label>
           </section>
           <section class="setup-widget">
-            <div class="widget-title"><h2>Group</h2><p>Chọn Group của bạn trong Space này.</p></div>
+            <div class="widget-title"><h2>Group <span style="color: #b91c1c;">*</span></h2><p>Chọn Group của bạn trong Space này.</p></div>
             <label class="student-field">
               <select id="groupName" required>
+                <option value="">-- Chọn Group --</option>
                 ${(state.space.groups || []).map((group) => `<option value="${esc(group)}" ${state.groupName === group ? "selected" : ""}>${esc(group)}</option>`).join("")}
               </select>
             </label>
@@ -627,7 +628,7 @@
     const best = days[0]?.rows?.[0];
     renderShell(`<section class="leaderboard-shell">
       <aside class="setup-sidebar">
-        <div class="setup-logo"><span>vQ</span><b>vn.Quiz</b></div>
+        <div class="setup-logo"><span>mq</span><b>mquiz</b></div>
         <nav class="setup-nav">
           <button id="backBtn" type="button"><span></span>Làm bài</button>
           <button class="active" type="button"><span></span>Kết quả</button>

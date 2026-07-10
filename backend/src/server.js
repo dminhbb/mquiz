@@ -403,7 +403,7 @@ app.use("/static-source", express.static(frontendDir));
 app.get("/:slug([a-z0-9-]+)", sendQuizIndex);
 
 app.listen(port, () => {
-  console.log(`vn.Quiz backend: http://localhost:${port}/admin`);
+  console.log(`mquiz backend: http://localhost:${port}/admin`);
   console.log(`Default superadmin: ${initialSuperadmin.username} / ${initialSuperadmin.password}`);
 });
 
@@ -507,12 +507,12 @@ function adminHtml() {
     '}'+
     'function render(){'+
       'if(!state.user)return renderLogin();'+
-      'root.innerHTML=`<div class="app"><aside class="sidebar"><div><div class="brand">vn.Quiz</div><div style="color:rgba(255,255,255,.72);font-weight:700">Backend local</div></div><div class="nav">${navButton("dashboard","Dashboard")}${state.user.role==="superadmin"?navButton("users","Quản lý Admin"):""}${navButton("spaces","Quản lý Space")}${navButton("password","Đổi mật khẩu")}</div><div style="margin-top:auto;display:grid;gap:10px"><div><b>${esc(state.user.fullname)}</b><br><span>${state.user.role}</span></div><button onclick="toggleTheme()">Đổi theme</button><button onclick="logout()">Đăng xuất</button></div></aside><main class="main"><div id="view"></div></main></div>`;'+
+      'root.innerHTML=`<div class="app"><aside class="sidebar"><div><div class="brand">mquiz</div><div style="color:rgba(255,255,255,.72);font-weight:700">Backend local</div></div><div class="nav">${navButton("dashboard","Dashboard")}${state.user.role==="superadmin"?navButton("users","Quản lý Admin"):""}${navButton("spaces","Quản lý Space")}${navButton("password","Đổi mật khẩu")}</div><div style="margin-top:auto;display:grid;gap:10px"><div><b>${esc(state.user.fullname)}</b><br><span>${state.user.role}</span></div><button onclick="toggleTheme()">Đổi theme</button><button onclick="logout()">Đăng xuất</button></div></aside><main class="main"><div id="view"></div></main></div>`;'+
       'loadView();'+
     '}'+
     'function navButton(view,label){return `<button class="${state.view===view?"active":""}" onclick="state.view=&quot;${view}&quot;; render()">${label}</button>`}'+
     'function renderLogin(){'+
-      'root.innerHTML=`<div class="login"><form class="panel grid" onsubmit="login(event)"><div><div class="brand">vn.Quiz</div><div class="muted">Đăng nhập backend local</div></div><label>Username<input name="username" required autocomplete="username"></label><label>Password<div class="pw-wrap"><input name="password" type="password" required autocomplete="current-password" id="loginPw"><button type="button" class="pw-toggle" onclick="togglePassword(&quot;loginPw&quot;, this)">Hiện</button></div></label><button class="primary">Đăng nhập</button><button type="button" onclick="forgotPassword()">Quên mật khẩu</button><p class="muted">Lần đầu: superadmin / admin123. Hãy đổi mật khẩu sau khi đăng nhập.</p></form></div>`;'+
+      'root.innerHTML=`<div class="login"><form class="panel grid" onsubmit="login(event)"><div><div class="brand">mquiz</div><div class="muted">Đăng nhập backend local</div></div><label>Username<input name="username" required autocomplete="username"></label><label>Password<div class="pw-wrap"><input name="password" type="password" required autocomplete="current-password" id="loginPw"><button type="button" class="pw-toggle" onclick="togglePassword(&quot;loginPw&quot;, this)">Hiện</button></div></label><button class="primary">Đăng nhập</button><button type="button" onclick="forgotPassword()">Quên mật khẩu</button><p class="muted">Lần đầu: superadmin / admin123. Hãy đổi mật khẩu sau khi đăng nhập.</p></form></div>`;'+
     '}'+
     'async function login(event){'+
       'event.preventDefault();'+
@@ -670,5 +670,5 @@ function adminHtml() {
     'bootstrap();'+
     '</'+'script>';
 
-  return '<!doctype html>\n<html lang="vi">\n<head>\n  <meta charset="utf-8">\n  <meta name="viewport" content="width=device-width, initial-scale=1">\n  <title>vn.Quiz Admin</title>\n  '+styles+'\n</head>\n<body>\n<div id="root"></div>\n<div id="modal" class="modal"></div>\n'+scripts+'\n</body>\n</html>';
+  return '<!doctype html>\n<html lang="vi">\n<head>\n  <meta charset="utf-8">\n  <meta name="viewport" content="width=device-width, initial-scale=1">\n  <title>mquiz Admin</title>\n  '+styles+'\n</head>\n<body>\n<div id="root"></div>\n<div id="modal" class="modal"></div>\n'+scripts+'\n</body>\n</html>';
 }

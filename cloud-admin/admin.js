@@ -63,7 +63,7 @@
     if (!state.session || !state.profile) return renderLogin();
     app.innerHTML = `<section class="admin-shell">
       <aside class="sidebar">
-        <div><div class="brand">vn.Quiz</div><div>Cloud Admin</div></div>
+        <div><div class="brand">mquiz</div><div>Cloud Admin</div></div>
         <nav>
           <button class="${state.view === "spaces" ? "active" : ""}" data-view="spaces">Quản lý Space</button>
           ${state.profile.role === "superadmin" ? '<button class="' + (state.view === "users" ? "active" : "") + '" data-view="users">Quản lý Admin</button>' : ""}
@@ -76,7 +76,7 @@
       <main class="workspace">
         ${state.status ? `<div class="status ${state.error ? "error" : ""}">${esc(state.status)}</div>` : ""}
         <div id="view"></div>
-        <footer class="copyright">vn.Quiz (C) 2026 | minhnd7</footer>
+        <footer class="copyright">mquiz (C) 2026 | minhnd7</footer>
       </main>
     </section>`;
     document.querySelectorAll("[data-view]").forEach((button) => {
@@ -96,7 +96,7 @@
   function renderLogin() {
     app.innerHTML = `<main class="login-screen">
       <form class="login-panel" id="loginForm">
-        <div><div class="brand">vn.Quiz</div><p class="muted">Đăng nhập quản trị cloud</p></div>
+        <div><div class="brand">mquiz</div><p class="muted">Đăng nhập quản trị cloud</p></div>
         ${state.status ? `<div class="status ${state.error ? "error" : ""}">${esc(state.status)}</div>` : ""}
         <label>Email<input name="email" type="email" autocomplete="username" required></label>
         <label>Mật khẩu<input name="password" type="password" autocomplete="current-password" required></label>
@@ -129,7 +129,7 @@
 
   function renderRecoveryPassword() {
     app.innerHTML = `<main class="login-screen"><form class="login-panel" id="recoveryForm">
-      <div><div class="brand">vn.Quiz</div><p class="muted">Đặt mật khẩu mới</p></div>
+      <div><div class="brand">mquiz</div><p class="muted">Đặt mật khẩu mới</p></div>
       <label>Mật khẩu mới<input name="password" type="password" minlength="8" required></label>
       <button class="primary">Cập nhật mật khẩu</button>
     </form></main>`;
@@ -160,20 +160,32 @@
       counts.set(question.space_id, current);
     });
     state.spaces = (spaces || []).map((space) => ({ ...space, counts: counts.get(space.id) || { total: 0, multi: 0 } }));
+    const summary = {
+      total: state.spaces.length,
+      published: state.spaces.filter((space) => space.published).length,
+      real: state.spaces.filter((space) => space.real_exam_enabled).length,
+      empty: state.spaces.filter((space) => Number(space.counts.total || 0) === 0).length
+    };
     view.innerHTML = `<header class="topbar">
       <div><h1>Quản lý Space</h1><p class="muted">Dữ liệu được lưu trực tiếp trên Supabase.</p></div>
       <button class="primary" id="addSpaceBtn">Thêm Space</button>
     </header>
+    <section class="space-summary-grid" aria-label="Tổng quan Space">
+      <article class="metric-card"><span>Tổng Space</span><b>${summary.total}</b><small>Đang quản trị</small></article>
+      <article class="metric-card"><span>Đã xuất bản</span><b>${summary.published}</b><small>${summary.total - summary.published} bản nháp</small></article>
+      <article class="metric-card"><span>Bật Thi thật</span><b>${summary.real}</b><small>Đợt thi đang cấu hình</small></article>
+      <article class="metric-card ${summary.empty ? "attention" : ""}"><span>Chưa có câu hỏi</span><b>${summary.empty}</b><small>Cần bổ sung ngân hàng</small></article>
+    </section>
     <section class="panel table-wrap spaces-table"><table>
       <thead><tr><th>Space</th><th>Câu hỏi</th><th>Thi thật</th><th>Trạng thái</th><th></th></tr></thead>
       <tbody>${state.spaces.map((space) => `<tr>
         <td><b>${esc(space.name)}</b><br><span class="muted">/${esc(space.slug)}</span></td>
-        <td>${space.counts.total}<br><span class="muted">${space.counts.multi} câu nhiều đáp án</span></td>
-        <td><span class="badge ${space.real_exam_enabled ? "on" : ""}">${space.real_exam_enabled ? "Đang bật" : "Đang tắt"}</span></td>
-        <td>${space.published ? "Published" : "Draft"}</td>
+        <td><span class="table-number">${space.counts.total}</span><br><span class="muted">${space.counts.multi} câu nhiều đáp án</span></td>
+        <td><span class="badge ${space.real_exam_enabled ? "on" : ""}">${space.real_exam_enabled ? "Đang bật Thi thật" : "Đang tắt"}</span>${space.real_exam_name ? `<br><span class="muted">${esc(space.real_exam_name)}</span>` : ""}</td>
+        <td><span class="status-pill ${space.published ? "published" : "draft"}">${space.published ? "Đã xuất bản" : "Bản nháp"}</span></td>
         <td class="settings-cell"><div class="space-row-actions">
+          <button class="row-primary-action" data-space-settings="${space.id}" title="Cấu hình Space" aria-label="Cấu hình Space"><i data-lucide="settings"></i></button>
           <button class="icon-button" data-share-space="${space.id}" title="Chia sẻ Space" aria-label="Chia sẻ Space"><i data-lucide="share-2"></i></button>
-          <button class="icon-button" data-space-settings="${space.id}" title="Cài đặt Space" aria-label="Cài đặt Space"><i data-lucide="settings"></i></button>
           <button class="icon-button danger" data-delete-space="${space.id}" title="Xóa Space" aria-label="Xóa Space"><i data-lucide="trash-2"></i></button>
         </div></td>
       </tr>`).join("")}</tbody>
@@ -244,7 +256,8 @@
       ["info", "Sửa thông tin Space"],
       ["groups", "Quản lý nhóm trong Space"],
       ["questions", "Quản lý Ngân hàng câu hỏi"],
-      ["real", "Quản lý Đợt thi thật"]
+      ["real", "Quản lý Đợt thi thật"],
+      ["results", "Quản lý kết quả"]
     ];
     openDialog(`<section class="space-settings">
       <aside class="space-settings-nav">
@@ -273,6 +286,7 @@
     if (tab === "groups") return renderGroupSettings(panel, spaceId, space);
     if (tab === "questions") return renderQuestionSettings(panel, spaceId, space);
     if (tab === "real") return renderRealExamSettings(panel, spaceId, space);
+    if (tab === "results") return renderResultSettings(panel, spaceId, space);
   }
 
   function renderSpaceInfoSettings(panel, id, space) {
@@ -286,8 +300,8 @@
         <label>Đường dẫn<input id="spaceSlugInput" name="slug" value="${esc(space.slug)}" pattern="[a-z0-9-]+" required></label>
         <div class="path-example path-example-inline"><span>Ví dụ</span><code>&lt;Đường dẫn của ứng dụng&gt;/&lt;Slug&gt;</code><small id="spaceUrlPreview">${esc(new URL(encodeURIComponent(space.slug || "slug"), quizBaseUrl).href)}</small></div>
       </div>
-      <label class="switch publish-switch"><input name="published" type="checkbox" ${space.published ? "checked" : ""}><span class="switch-track"></span><span>Published</span></label>
-      <div class="settings-save"><button class="primary">Lưu</button><button type="button" data-close>Đóng</button></div>
+      <label class="switch publish-switch"><input name="published" type="checkbox" ${space.published ? "checked" : ""}><span class="switch-track"></span><span>Đã xuất bản</span></label>
+      <div class="settings-save"><button class="primary">Lưu thay đổi</button><button type="button" data-close>Đóng</button></div>
     </form>`;
     bindPanelCloseButtons(panel);
     document.getElementById("spaceSlugInput").oninput = (event) => {
@@ -311,7 +325,7 @@
         <button class="primary">Thêm</button>
       </form>
       <div id="groupList" class="group-settings-list">${groups.map((group) => `<div class="group-settings-item"><b>${esc(group.name)}</b><div class="group-card-actions"><button type="button" class="link-button" data-rename-group="${group.id}">Sửa</button><button type="button" class="link-button danger" data-delete-group="${group.id}">Xóa</button></div></div>`).join("") || '<p class="muted">Chưa có nhóm.</p>'}</div>
-      <div class="settings-save"><button type="button" class="primary" data-close>Lưu</button><button type="button" data-close>Đóng</button></div>
+      <div class="settings-save"><button type="button" class="primary" data-close>Hoàn tất</button><button type="button" data-close>Đóng</button></div>
     </section>`;
     document.getElementById("addGroupForm").onsubmit = async (event) => {
       event.preventDefault();
@@ -394,7 +408,6 @@
           </div>
         </div>`).join("") || '<p class="muted">Chưa có Bộ câu hỏi.</p>'}</div>
       </section>
-      <div class="dash-separator" aria-hidden="true"></div>
       <section class="settings-section">
         <div class="section-heading">
           <div>
@@ -405,7 +418,6 @@
         </div>
         <label>Bộ câu hỏi<select id="questionSetSelect" ${activeSet ? "" : "disabled"}>${questionSetOptions(sets, activeSet?.id)}</select></label>
       </section>
-      <div class="dash-separator" aria-hidden="true"></div>
       <section class="settings-section">
         <h3>Upload câu hỏi</h3>
         <input id="csvFile" type="file" accept=".csv,text/csv" ${activeSet ? "" : "disabled"}>
@@ -414,7 +426,6 @@
           <button type="button" id="previewCsvBtn" ${activeSet ? "" : "disabled"}>Preview</button>
         </div>
       </section>
-      <div class="dash-separator" aria-hidden="true"></div>
       <section class="settings-section">
         <div class="section-heading">
           <div>
@@ -424,7 +435,7 @@
           <button type="button" class="danger" id="deleteQuestionsBtn" ${activeSet ? "" : "disabled"}>Xóa toàn bộ câu hỏi</button>
         </div>
       </section>
-      <div class="settings-save"><button type="button" class="primary" id="importCsvBtn" disabled>Lưu</button><button type="button" data-close>Đóng</button></div>
+      <div class="settings-save"><button type="button" class="primary" id="importCsvBtn" disabled>Lưu câu hỏi</button><button type="button" data-close>Đóng</button></div>
     </section>`;
     let parsedQuestions = [];
     document.getElementById("addQuestionSetForm").onsubmit = async (event) => {
@@ -469,9 +480,9 @@
         }
       });
     };
-    document.getElementById("importCsvBtn").onclick = () => importQuestions(spaceId, parsedQuestions, activeSet?.id);
+    document.getElementById("importCsvBtn").onclick = (event) => importQuestions(spaceId, parsedQuestions, activeSet?.id, event.currentTarget);
     document.getElementById("exportQuestionsBtn").onclick = () => exportQuestions(spaceId, space.slug, activeSet?.id);
-    document.getElementById("deleteQuestionsBtn").onclick = () => deleteAllQuestions(spaceId, activeSet?.id);
+    document.getElementById("deleteQuestionsBtn").onclick = (event) => deleteAllQuestions(spaceId, activeSet?.id, event.currentTarget);
     bindPanelCloseButtons(panel);
   }
 
@@ -489,22 +500,34 @@
       <h2>Quản lý Đợt thi thật</h2>
       <section class="settings-section">
         <div class="real-exam-header">
-          <h3>Vùng cấu hình đợt thi thật</h3>
+          <div>
+            <h3>Thông tin đợt thi</h3>
+            <p class="muted">Tên và trạng thái mở Thi thật cho Space này.</p>
+          </div>
           <label class="switch"><input name="enabled" type="checkbox" ${space.real_exam_enabled ? "checked" : ""}><span class="switch-track"></span><span>Bật Thi thật</span></label>
         </div>
-        <label>Tên của đợt thi thật<input name="real_exam_name" value="${esc(space.real_exam_name || "")}" placeholder="Ví dụ: Thi thật tháng 07/2026"></label>
-        <div class="settings-section real-set-section">
-          <h3>Lựa chọn ngân hàng câu hỏi</h3>
-          <div class="real-set-list">${sets.map((set) => {
-            const config = selectedConfig.find((item) => Number(item.id) === Number(set.id));
-            const selected = Boolean(config);
-            return `<div class="real-set-item">
-              <label class="switch"><input type="checkbox" data-real-set-check="${set.id}" ${selected ? "checked" : ""}><span class="switch-track"></span><span>${esc(set.name)}</span></label>
-              <span class="muted">${set.counts.total} câu · ${set.counts.multi} câu nhiều đáp án</span>
-              <label>Tỷ lệ câu (%)<input type="number" min="0" max="100" step="1" data-real-set-percent="${set.id}" value="${Number(config?.percent || 0)}" ${selected ? "" : "disabled"}></label>
-            </div>`;
-          }).join("") || '<p class="muted">Chưa có Bộ câu hỏi.</p>'}</div>
-          <p class="muted" id="realSetTotalHint"></p>
+        <label class="inline-required-field"><span>Tên của đợt thi thật <b aria-hidden="true">*</b></span><input name="real_exam_name" value="${esc(space.real_exam_name || "")}" placeholder="Ví dụ: Thi thật tháng 07/2026" required></label>
+      </section>
+      <section class="settings-section real-set-section">
+        <div>
+          <h3>Nguồn câu hỏi</h3>
+          <p class="muted">Chọn một hoặc nhiều Bộ câu hỏi và tỷ lệ lấy câu cho bài Thi thật.</p>
+        </div>
+        <div class="real-set-list">${sets.map((set) => {
+          const config = selectedConfig.find((item) => Number(item.id) === Number(set.id));
+          const selected = Boolean(config);
+          return `<div class="real-set-item">
+            <label class="switch"><input type="checkbox" data-real-set-check="${set.id}" ${selected ? "checked" : ""}><span class="switch-track"></span><span>${esc(set.name)}</span></label>
+            <span class="real-set-stats">${set.counts.total} câu · ${set.counts.multi} câu nhiều đáp án</span>
+            <label>Tỷ lệ câu (%)<input type="number" min="0" max="100" step="1" data-real-set-percent="${set.id}" value="${Number(config?.percent || 0)}" ${selected ? "" : "disabled"}></label>
+          </div>`;
+        }).join("") || '<p class="muted">Chưa có Bộ câu hỏi.</p>'}</div>
+        <p class="muted" id="realSetTotalHint"></p>
+      </section>
+      <section class="settings-section">
+        <div>
+          <h3>Quy tắc tạo đề</h3>
+          <p class="muted">Các tỷ lệ được tính trên những Bộ câu hỏi đã chọn ở vùng nguồn câu hỏi.</p>
         </div>
         <div class="grid two real-exam-row">
           ${selectField("question_percent", "Số lượng câu hỏi", [30,50,70,100], space.real_question_percent, "%")}
@@ -513,12 +536,6 @@
         <div class="grid two real-exam-row">
           ${selectField("multi_percent", "Tỷ lệ câu nhiều đáp án", [30,50,70,100], space.real_multi_percent, "%")}
           ${selectField("max_attempts", "Số lần thi tối đa", [1,2,3,4,5], space.real_max_attempts, "")}
-        </div>
-        <div class="grid two real-exam-row">
-          <label>Ngày bắt đầu<input name="start_date" type="date" value="${toLocalDateInput(space.real_start_at)}"></label>
-          <label>Giờ bắt đầu<select name="start_time">${timeOptions(toLocalTimeText(space.real_start_at))}</select></label>
-          <label>Ngày kết thúc<input name="end_date" type="date" value="${toLocalDateInput(space.real_end_at)}"></label>
-          <label>Giờ kết thúc<select name="end_time">${timeOptions(toLocalTimeText(space.real_end_at))}</select></label>
         </div>
         <div class="scoring-field-row">
           <label>Cách tính điểm<select name="scoring_method">
@@ -531,19 +548,32 @@
           </div>
         </div>
       </section>
-      <div class="dash-separator" aria-hidden="true"></div>
+      <section class="settings-section">
+        <div>
+          <h3>Thời gian thi</h3>
+          <p class="muted">Ngày dùng calendar picker, giờ theo định dạng 24h và bước 15 phút.</p>
+        </div>
+        <div class="grid two real-exam-row">
+          <label>Ngày bắt đầu<input name="start_date" type="date" value="${toLocalDateInput(space.real_start_at)}"></label>
+          <label>Giờ bắt đầu<select name="start_time">${timeOptions(toLocalTimeText(space.real_start_at))}</select></label>
+          <label>Ngày kết thúc<input name="end_date" type="date" value="${toLocalDateInput(space.real_end_at)}"></label>
+          <label>Giờ kết thúc<select name="end_time">${timeOptions(toLocalTimeText(space.real_end_at))}</select></label>
+        </div>
+      </section>
       <section class="settings-section">
         <div class="section-heading">
           <div>
-            <h3>Vùng Kết quả đợt thi thật gần nhất</h3>
+            <h3>Kết quả đợt thi thật gần nhất</h3>
             <p class="muted">15 kết quả cao nhất của học viên.</p>
           </div>
-          <button type="button" id="exportRealExamBtn">Tải Dữ liệu đợt thi thật</button>
-          <button type="button" id="viewRealExamResultsBtn">Xem Kết quả thi thật</button>
+          <div class="section-actions">
+            <button type="button" id="exportRealExamBtn">Tải Dữ liệu đợt thi thật</button>
+            <button type="button" class="primary" id="viewRealExamResultsBtn">Xem Kết quả thi thật</button>
+          </div>
         </div>
         <div id="realExamTopResults" class="real-results-list muted">Bấm “Xem Kết quả thi thật” để tải dữ liệu.</div>
       </section>
-      <div class="settings-save"><button class="primary">Lưu</button><button type="button" data-close>Đóng</button></div>
+      <div class="settings-save"><button class="primary">Lưu thay đổi</button><button type="button" data-close>Đóng</button></div>
     </form>`;
     wireRealExamForm(id);
     document.getElementById("exportRealExamBtn").onclick = () => exportRealExamResults(id);
@@ -581,6 +611,178 @@
     return normalized;
   }
 
+  async function renderResultSettings(panel, spaceId, space) {
+    panel.innerHTML = '<div class="panel">Đang tải cấu hình kết quả...</div>';
+    let periods = [];
+    try {
+      const { data, error } = await client.rpc("list_real_exam_periods", {
+        requested_slug: space.slug
+      });
+      if (error) throw error;
+      periods = data || [];
+    } catch (error) {
+      return showDialogError(error.message || "Không tải được danh sách đợt thi thật.");
+    }
+    panel.innerHTML = `<section class="grid settings-pane">
+      <h2>Quản lý kết quả</h2>
+      <form id="resultRetentionForm" class="settings-section">
+        <div>
+          <h3>Giới hạn lưu kết quả</h3>
+          <p class="muted">Hệ thống tự dọn dữ liệu cũ khi có kết quả mới và khi bạn lưu cấu hình này.</p>
+        </div>
+        <div class="grid two">
+          <label>Giữ kết quả thi thử trong số ngày
+            <input name="mock_result_retention_days" type="number" min="3" max="15" step="1" value="${Number(space.mock_result_retention_days || 7)}" required>
+          </label>
+          <label>Giữ kết quả thi thật trong số đợt
+            <input name="real_result_retention_exams" type="number" min="3" max="15" step="1" value="${Number(space.real_result_retention_exams || 7)}" required>
+          </label>
+        </div>
+        <div class="retention-rules">
+          <span>Thi thử: tối đa 500 bản ghi/Space.</span>
+          <span>Thi thật: tối đa 1000 bản ghi/Space.</span>
+        </div>
+        <div id="resultCleanupStatus" class="muted"></div>
+        <div class="settings-save"><button class="primary">Lưu thay đổi</button><button type="button" data-close>Đóng</button></div>
+      </form>
+      <section class="settings-section">
+        <div class="section-heading">
+          <div>
+            <h3>Quản lý dữ liệu thi thật</h3>
+            <p class="muted">Chọn Tên đợt thi thật để xem 30 kết quả cao nhất hoặc tải Excel của đợt đó.</p>
+          </div>
+        </div>
+        <div class="result-period-controls">
+          <label>Tên đợt thi thật<select id="resultExamPeriodSelect" ${periods.length ? "" : "disabled"}>${resultPeriodOptions(periods)}</select></label>
+          <button type="button" id="viewResultPeriodBtn" ${periods.length ? "" : "disabled"}>Xem dữ liệu</button>
+          <button type="button" class="primary" id="exportResultPeriodBtn" ${periods.length ? "" : "disabled"}>Tải về dữ liệu</button>
+        </div>
+        <div id="resultPeriodPreview" class="real-results-list muted">${periods.length ? "Chọn đợt thi thật rồi bấm “Xem dữ liệu”." : "Chưa có dữ liệu Thi thật."}</div>
+      </section>
+    </section>`;
+    document.getElementById("resultRetentionForm").onsubmit = (event) => saveResultSettings(event, spaceId);
+    document.getElementById("viewResultPeriodBtn").onclick = (event) => loadSelectedRealExamRows(space, event.currentTarget);
+    document.getElementById("exportResultPeriodBtn").onclick = (event) => exportSelectedRealExamRows(space, event.currentTarget);
+    bindPanelCloseButtons(panel);
+  }
+
+  function resultPeriodOptions(periods) {
+    return periods.map((period) => {
+      const name = period.real_exam_name || "Đợt thi thật chưa đặt tên";
+      const date = period.real_exam_start_at ? ` · ${formatExportDateTime(period.real_exam_start_at)}` : "";
+      return `<option value="${esc(period.real_exam_version)}">${esc(name)}${esc(date)} · ${Number(period.submitted_count || 0)} bản ghi</option>`;
+    }).join("");
+  }
+
+  async function saveResultSettings(event, spaceId) {
+    event.preventDefault();
+    const form = new FormData(event.target);
+    const payload = {
+      mock_result_retention_days: Number(form.get("mock_result_retention_days")),
+      real_result_retention_exams: Number(form.get("real_result_retention_exams")),
+      updated_at: new Date().toISOString()
+    };
+    if (payload.mock_result_retention_days < 3 || payload.mock_result_retention_days > 15) return showDialogError("Số ngày lưu kết quả thi thử phải từ 3 đến 15.");
+    if (payload.real_result_retention_exams < 3 || payload.real_result_retention_exams > 15) return showDialogError("Số đợt lưu kết quả thi thật phải từ 3 đến 15.");
+    const restoreButton = setButtonBusy(event.submitter, "Đang lưu...");
+    try {
+      const { error } = await client.from("spaces").update(payload).eq("id", spaceId);
+      if (error) return showDialogError(error.message);
+      const { data, error: cleanupError } = await client.rpc("cleanup_space_results", { target_space_id: spaceId });
+      if (cleanupError) return showDialogError(cleanupError.message);
+      const status = document.getElementById("resultCleanupStatus");
+      if (status) {
+        status.textContent = `Đã lưu và dọn ${Number(data?.mock_deleted_by_days || 0) + Number(data?.mock_deleted_by_cap || 0)} kết quả thi thử, ${Number(data?.real_deleted_by_exam_limit || 0) + Number(data?.real_deleted_by_cap || 0)} kết quả thi thật.`;
+      }
+      await renderSpaces();
+    } finally {
+      restoreButton();
+    }
+  }
+
+  async function fetchSelectedRealExamRows(space) {
+    const select = document.getElementById("resultExamPeriodSelect");
+    const examVersion = select?.value;
+    if (!examVersion) throw new Error("Chọn Tên đợt thi thật trước.");
+    const { data, error } = await client.rpc("export_real_exam_results_by_version", {
+      requested_slug: space.slug,
+      requested_exam_version: examVersion
+    });
+    if (error) throw error;
+    return data || [];
+  }
+
+  async function loadSelectedRealExamRows(space, button) {
+    const target = document.getElementById("resultPeriodPreview");
+    if (!target) return;
+    const restoreButton = setButtonBusy(button, "Đang tải...");
+    target.classList.add("muted");
+    target.innerHTML = '<div class="loading-block">Đang tải 30 kết quả cao nhất...</div>';
+    try {
+      const rows = (await fetchSelectedRealExamRows(space)).slice(0, 30);
+      if (!rows.length) {
+        target.innerHTML = '<div class="empty-state">Đợt thi thật này chưa có kết quả.</div>';
+        return;
+      }
+      target.classList.remove("muted");
+      target.innerHTML = realExamRowsTable(rows);
+    } catch (error) {
+      target.innerHTML = `<div class="status error">${esc(error.message || "Không tải được dữ liệu.")}</div>`;
+    } finally {
+      restoreButton();
+    }
+  }
+
+  async function exportSelectedRealExamRows(space, button) {
+    if (!window.XLSX) return showDialogError("Không thể khởi tạo chức năng xuất Excel.");
+    const restoreButton = setButtonBusy(button, "Đang tạo Excel...");
+    try {
+      const rows = await fetchSelectedRealExamRows(space);
+      if (!rows.length) return showDialogError("Đợt thi thật này chưa có dữ liệu để tải.");
+      const examName = rows[0]?.real_exam_name || "Đợt thi thật";
+      const sheetRows = rows.map((row) => ({
+        "Group": row.group_name || "Chưa phân nhóm",
+        "Tên đợt Thi thật": row.real_exam_name || examName,
+        "Học viên": row.student_name,
+        "Điểm": Number(row.score),
+        "Đúng": Number(row.correct_count),
+        "Sai": Number(row.wrong_count),
+        "Tổng số câu": Number(row.total_questions),
+        "Thời gian làm bài": formatExportDuration(row.duration_seconds),
+        "Bắt đầu làm bài": formatExportDateTime(row.started_at),
+        "Nộp bài": formatExportDateTime(row.submitted_at)
+      }));
+      const worksheet = XLSX.utils.json_to_sheet(sheetRows);
+      worksheet["!cols"] = [
+        { wch: 24 }, { wch: 34 }, { wch: 28 }, { wch: 10 }, { wch: 10 },
+        { wch: 10 }, { wch: 12 }, { wch: 20 }, { wch: 22 }, { wch: 22 }
+      ];
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, "Kết quả Thi thật");
+      XLSX.writeFile(workbook, `ket-qua-${safeExportFileName(space.slug)}-${safeExportFileName(examName)}.xlsx`);
+      setStatus(`Đã xuất ${rows.length} kết quả của “${examName}”.`);
+    } catch (error) {
+      showDialogError(error.message || "Không thể tải dữ liệu Thi thật.");
+    } finally {
+      restoreButton();
+    }
+  }
+
+  function realExamRowsTable(rows) {
+    return `<table class="compact-results-table">
+      <thead><tr><th>#</th><th>Học viên</th><th>Group</th><th>Điểm</th><th>Đúng</th><th>Thời gian</th><th>Nộp bài</th></tr></thead>
+      <tbody>${rows.map((row, index) => `<tr>
+        <td>${index + 1}</td>
+        <td><b>${esc(row.student_name || "")}</b></td>
+        <td>${esc(row.group_name || "Chưa phân nhóm")}</td>
+        <td>${Number(row.score).toFixed(2)}</td>
+        <td>${Number(row.correct_count || 0)}/${Number(row.total_questions || 0)}</td>
+        <td>${formatExportDuration(row.duration_seconds)}</td>
+        <td>${formatExportDateTime(row.submitted_at)}</td>
+      </tr>`).join("")}</tbody>
+    </table>`;
+  }
+
   function wireRealSetControls() {
     const sync = (changedId = null) => {
       const checked = [...document.querySelectorAll("[data-real-set-check]:checked")].map((input) => ({
@@ -613,10 +815,26 @@
     });
   }
 
+  function setButtonBusy(button, label) {
+    if (!button) return () => {};
+    const previousLabel = button.textContent;
+    button.disabled = true;
+    button.textContent = label;
+    return () => {
+      if (!button.isConnected) return;
+      button.disabled = false;
+      button.textContent = previousLabel;
+    };
+  }
+
   async function loadLatestRealExamResults(id) {
     const target = document.getElementById("realExamTopResults");
+    const button = document.getElementById("viewRealExamResultsBtn");
     const space = state.spaces.find((item) => item.id === id);
     if (!target || !space) return;
+    const restoreButton = setButtonBusy(button, "Đang tải...");
+    target.classList.add("muted");
+    target.innerHTML = '<div class="loading-block">Đang tải 15 kết quả cao nhất...</div>';
     try {
       const { data, error } = await client.rpc("export_real_exam_results", {
         requested_slug: space.slug,
@@ -650,6 +868,8 @@
       </table>`;
     } catch (error) {
       target.innerHTML = `<div class="status error">${esc(error.message || "Không thể tải kết quả Thi thật.")}</div>`;
+    } finally {
+      restoreButton();
     }
   }
 
@@ -688,7 +908,7 @@
         <label>Đường dẫn<input id="spaceSlugInput" name="slug" value="${esc(space.slug)}" pattern="[a-z0-9-]+" required></label>
         <div class="path-example"><span>Ví dụ</span><code>&lt;Đường dẫn của ứng dụng&gt;/&lt;Slug&gt;</code><small id="spaceUrlPreview">${esc(new URL(encodeURIComponent(space.slug || "slug"), quizBaseUrl).href)}</small></div>
       </div>
-      <label class="switch publish-switch"><input name="published" type="checkbox" ${space.published ? "checked" : ""}><span class="switch-track"></span><span>Published</span></label>
+      <label class="switch publish-switch"><input name="published" type="checkbox" ${space.published ? "checked" : ""}><span class="switch-track"></span><span>Đã xuất bản</span></label>
       <div class="actions"><button class="primary">Lưu</button><button type="button" data-close>Hủy</button></div>
     </form>`);
     document.querySelector("[data-close]").onclick = closeDialog;
@@ -703,6 +923,7 @@
 
   async function saveSpace(event, id) {
     event.preventDefault();
+    const restoreButton = setButtonBusy(event.submitter, "Đang lưu...");
     const form = new FormData(event.target);
     const payload = {
       name: form.get("name").trim(),
@@ -711,18 +932,22 @@
       published: form.has("published"),
       updated_at: new Date().toISOString()
     };
-    let result;
-    if (id) result = await client.from("spaces").update(payload).eq("id", id);
-    else result = await client.from("spaces").insert(payload).select("id").single();
-    if (result.error) return showDialogError(result.error.message);
-    if (!id) {
-      const { error } = await client.from("groups").insert({ space_id: result.data.id, name: payload.name });
-      if (error) return showDialogError(error.message);
-      const { error: setError } = await client.from("question_sets").insert({ space_id: result.data.id, name: "Mặc định" });
-      if (setError) return showDialogError(setError.message);
+    try {
+      let result;
+      if (id) result = await client.from("spaces").update(payload).eq("id", id);
+      else result = await client.from("spaces").insert(payload).select("id").single();
+      if (result.error) return showDialogError(result.error.message);
+      if (!id) {
+        const { error } = await client.from("groups").insert({ space_id: result.data.id, name: payload.name });
+        if (error) return showDialogError(error.message);
+        const { error: setError } = await client.from("question_sets").insert({ space_id: result.data.id, name: "Mặc định" });
+        if (setError) return showDialogError(setError.message);
+      }
+      closeDialog();
+      await renderSpaces();
+    } finally {
+      restoreButton();
     }
-    closeDialog();
-    await renderSpaces();
   }
 
   async function deleteSpace(id) {
@@ -1013,27 +1238,37 @@
     });
   }
 
-  async function importQuestions(spaceId, questions, questionSetId = null) {
+  async function importQuestions(spaceId, questions, questionSetId = null, button = null) {
     if (!questions.length) return;
-    const { data: current } = await client.from("questions").select("order_no").eq("space_id", spaceId).order("order_no", { ascending: false }).limit(1);
-    const maxOrder = current?.[0]?.order_no || 0;
-    const rows = questions.map((question, index) => ({ ...question, space_id: spaceId, question_set_id: questionSetId, order_no: maxOrder + index + 1 }));
-    const { error } = await client.from("questions").insert(rows);
-    if (error) return showDialogError(error.message);
-    closeDialog();
-    setStatus(`Đã thêm ${rows.length} câu hỏi.`);
-    await renderSpaces();
+    const restoreButton = setButtonBusy(button, "Đang lưu...");
+    try {
+      const { data: current } = await client.from("questions").select("order_no").eq("space_id", spaceId).order("order_no", { ascending: false }).limit(1);
+      const maxOrder = current?.[0]?.order_no || 0;
+      const rows = questions.map((question, index) => ({ ...question, space_id: spaceId, question_set_id: questionSetId, order_no: maxOrder + index + 1 }));
+      const { error } = await client.from("questions").insert(rows);
+      if (error) return showDialogError(error.message);
+      closeDialog();
+      setStatus(`Đã thêm ${rows.length} câu hỏi.`);
+      await renderSpaces();
+    } finally {
+      restoreButton();
+    }
   }
 
-  async function deleteAllQuestions(spaceId, questionSetId = null) {
+  async function deleteAllQuestions(spaceId, questionSetId = null, button = null) {
     if (!confirm("Xóa toàn bộ câu hỏi của Bộ câu hỏi đang chọn? Thao tác không thể hoàn tác.")) return;
-    let query = client.from("questions").delete().eq("space_id", spaceId);
-    if (questionSetId) query = query.eq("question_set_id", questionSetId);
-    const { error } = await query;
-    if (error) return showDialogError(error.message);
-    closeDialog();
-    setStatus("Đã xóa toàn bộ câu hỏi.");
-    await renderSpaces();
+    const restoreButton = setButtonBusy(button, "Đang xóa...");
+    try {
+      let query = client.from("questions").delete().eq("space_id", spaceId);
+      if (questionSetId) query = query.eq("question_set_id", questionSetId);
+      const { error } = await query;
+      if (error) return showDialogError(error.message);
+      closeDialog();
+      setStatus("Đã xóa toàn bộ câu hỏi.");
+      await renderSpaces();
+    } finally {
+      restoreButton();
+    }
   }
 
   function openRealExam(id) {
@@ -1186,10 +1421,15 @@
       real_end_at: endIso,
       updated_at: new Date().toISOString()
     };
-    const { error } = await client.from("spaces").update(payload).eq("id", id);
-    if (error) return showDialogError(error.message);
-    closeDialog();
-    await renderSpaces();
+    const restoreButton = setButtonBusy(event.submitter, "Đang lưu...");
+    try {
+      const { error } = await client.from("spaces").update(payload).eq("id", id);
+      if (error) return showDialogError(error.message);
+      closeDialog();
+      await renderSpaces();
+    } finally {
+      restoreButton();
+    }
   }
 
   async function renderUsers() {
