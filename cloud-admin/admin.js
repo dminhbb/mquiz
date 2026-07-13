@@ -3,6 +3,9 @@
   const dialog = document.getElementById("adminDialog");
   const adminBaseUrl = new URL("./", location.href);
   const quizBaseUrl = new URL("../", adminBaseUrl);
+  const APP_VERSION = document.querySelector('meta[name="app-version"]')?.content || "unknown";
+  const APP_VERSION_URL = new URL("../app-version.json", document.currentScript?.src || adminBaseUrl);
+  const APP_VERSION_CHECK_INTERVAL_MS = 60_000;
   const config = window.__SQ_SUPABASE__ || {};
   const client = window.supabase?.createClient(config.url, config.anonKey);
   const state = {
@@ -12,7 +15,8 @@
     spaces: [],
     passwordRecovery: false,
     status: "",
-    error: false
+    error: false,
+    updateAvailableVersion: ""
   };
 
   const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (ch) => ({
@@ -23,6 +27,49 @@
     state.status = message;
     state.error = error;
     render();
+  }
+
+  function showAppUpdateToast() {
+    if (!state.updateAvailableVersion || document.querySelector(".app-update-toast")) return;
+    const toast = document.createElement("button");
+    toast.type = "button";
+    toast.className = "app-update-toast";
+    toast.textContent = "Làm mới ứng dụng";
+    toast.setAttribute("aria-label", "Có phiên bản mới. Làm mới ứng dụng");
+    toast.onclick = forceRefreshApplication;
+    document.body.appendChild(toast);
+  }
+
+  function forceRefreshApplication() {
+    const target = new URL(window.location.href);
+    target.searchParams.set("app_version", state.updateAvailableVersion || String(Date.now()));
+    window.location.replace(target.href);
+  }
+
+  /**
+   * Checks whether a newer deployed admin/frontend bundle is available.
+   *
+   * @returns {Promise<void>}
+   */
+  async function checkForAppUpdate() {
+    try {
+      const response = await fetch(APP_VERSION_URL, { cache: "no-store" });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const payload = await response.json();
+      const latestVersion = typeof payload?.version === "string" ? payload.version.trim() : "";
+      if (!latestVersion) throw new Error("Dữ liệu phiên bản không hợp lệ.");
+      if (latestVersion !== APP_VERSION) {
+        state.updateAvailableVersion = latestVersion;
+        showAppUpdateToast();
+      }
+    } catch (error) {
+      console.warn("Không thể kiểm tra phiên bản mới của trang quản trị.", error);
+    }
+  }
+
+  function startAppVersionMonitoring() {
+    checkForAppUpdate();
+    window.setInterval(checkForAppUpdate, APP_VERSION_CHECK_INTERVAL_MS);
   }
 
   async function boot() {
@@ -172,7 +219,7 @@
     </header>
     <section class="space-summary-grid" aria-label="Tổng quan Space">
       <article class="metric-card"><span>Tổng Space</span><b>${summary.total}</b><small>Đang quản trị</small></article>
-      <article class="metric-card"><span>Đã xuất bản</span><b>${summary.published}</b><small>${summary.total - summary.published} bản nháp</small></article>
+      <article class="metric-card"><span>Online</span><b>${summary.published}</b><small>${summary.total - summary.published} Offline</small></article>
       <article class="metric-card"><span>Bật Thi thật</span><b>${summary.real}</b><small>Đợt thi đang cấu hình</small></article>
       <article class="metric-card ${summary.empty ? "attention" : ""}"><span>Chưa có câu hỏi</span><b>${summary.empty}</b><small>Cần bổ sung ngân hàng</small></article>
     </section>
@@ -182,11 +229,11 @@
         <td><b>${esc(space.name)}</b><br><span class="muted">/${esc(space.slug)}</span></td>
         <td><span class="table-number">${space.counts.total}</span><br><span class="muted">${space.counts.multi} câu nhiều đáp án</span></td>
         <td><span class="badge ${space.real_exam_enabled ? "on" : ""}">${space.real_exam_enabled ? "Đang bật Thi thật" : "Đang tắt"}</span>${space.real_exam_name ? `<br><span class="muted">${esc(space.real_exam_name)}</span>` : ""}</td>
-        <td><span class="status-pill ${space.published ? "published" : "draft"}">${space.published ? "Đã xuất bản" : "Bản nháp"}</span></td>
+        <td><span class="status-pill ${space.published ? "published" : "draft"}">${space.published ? "Online" : "Offline"}</span></td>
         <td class="settings-cell"><div class="space-row-actions">
           <button class="row-primary-action" data-space-settings="${space.id}" title="Cấu hình Space" aria-label="Cấu hình Space"><i data-lucide="settings"></i></button>
           <button class="icon-button" data-share-space="${space.id}" title="Chia sẻ Space" aria-label="Chia sẻ Space"><i data-lucide="share-2"></i></button>
-          <button class="icon-button danger" data-delete-space="${space.id}" title="Xóa Space" aria-label="Xóa Space"><i data-lucide="trash-2"></i></button>
+          ${state.profile.role === "superadmin" ? `<button class="icon-button danger" data-delete-space="${space.id}" title="Xóa Space" aria-label="Xóa Space"><i data-lucide="trash-2"></i></button>` : ""}
         </div></td>
       </tr>`).join("")}</tbody>
     </table></section>`;
@@ -300,10 +347,11 @@
         <label>Đường dẫn<input id="spaceSlugInput" name="slug" value="${esc(space.slug)}" pattern="[a-z0-9-]+" required></label>
         <div class="path-example path-example-inline"><span>Ví dụ</span><code>&lt;Đường dẫn của ứng dụng&gt;/&lt;Slug&gt;</code><small id="spaceUrlPreview">${esc(new URL(encodeURIComponent(space.slug || "slug"), quizBaseUrl).href)}</small></div>
       </div>
-      <label class="switch publish-switch"><input name="published" type="checkbox" ${space.published ? "checked" : ""}><span class="switch-track"></span><span>Đã xuất bản</span></label>
+      <label class="switch publish-switch"><input name="published" type="checkbox" ${space.published ? "checked" : ""}><span class="switch-track"></span><span data-publish-status>${space.published ? "Online" : "Offline"}</span></label>
       <div class="settings-save"><button class="primary">Lưu thay đổi</button><button type="button" data-close>Đóng</button></div>
     </form>`;
     bindPanelCloseButtons(panel);
+    wirePublishStatusLabel(panel);
     document.getElementById("spaceSlugInput").oninput = (event) => {
       document.getElementById("spaceUrlPreview").textContent = new URL(
         encodeURIComponent(event.target.value || "slug"),
@@ -517,9 +565,11 @@
           const config = selectedConfig.find((item) => Number(item.id) === Number(set.id));
           const selected = Boolean(config);
           return `<div class="real-set-item">
-            <label class="switch"><input type="checkbox" data-real-set-check="${set.id}" ${selected ? "checked" : ""}><span class="switch-track"></span><span>${esc(set.name)}</span></label>
-            <span class="real-set-stats">${set.counts.total} câu · ${set.counts.multi} câu nhiều đáp án</span>
-            <label>Tỷ lệ câu (%)<input type="number" min="0" max="100" step="1" data-real-set-percent="${set.id}" value="${Number(config?.percent || 0)}" ${selected ? "" : "disabled"}></label>
+            <div class="real-set-identity">
+              <label class="switch real-set-toggle" title="Chọn Bộ câu hỏi ${esc(set.name)}"><input type="checkbox" data-real-set-check="${set.id}" aria-label="Chọn Bộ câu hỏi ${esc(set.name)}" ${selected ? "checked" : ""}><span class="switch-track"></span></label>
+              <div class="real-set-copy"><strong>${esc(set.name)}</strong><span class="real-set-stats">${set.counts.total} câu · ${set.counts.multi} câu nhiều đáp án</span></div>
+            </div>
+            <label class="real-set-percent">Tỷ lệ câu (%)<input type="number" min="0" max="100" step="1" data-real-set-percent="${set.id}" value="${Number(config?.percent || 0)}" ${selected ? "" : "disabled"}></label>
           </div>`;
         }).join("") || '<p class="muted">Chưa có Bộ câu hỏi.</p>'}</div>
         <p class="muted" id="realSetTotalHint"></p>
@@ -748,6 +798,7 @@
         "Đúng": Number(row.correct_count),
         "Sai": Number(row.wrong_count),
         "Tổng số câu": Number(row.total_questions),
+        "Số lần rời màn hình": Number(row.focus_violation_count || 0),
         "Thời gian làm bài": formatExportDuration(row.duration_seconds),
         "Bắt đầu làm bài": formatExportDateTime(row.started_at),
         "Nộp bài": formatExportDateTime(row.submitted_at)
@@ -755,7 +806,7 @@
       const worksheet = XLSX.utils.json_to_sheet(sheetRows);
       worksheet["!cols"] = [
         { wch: 24 }, { wch: 34 }, { wch: 28 }, { wch: 10 }, { wch: 10 },
-        { wch: 10 }, { wch: 12 }, { wch: 20 }, { wch: 22 }, { wch: 22 }
+        { wch: 10 }, { wch: 12 }, { wch: 20 }, { wch: 20 }, { wch: 22 }, { wch: 22 }
       ];
       const workbook = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(workbook, worksheet, "Kết quả Thi thật");
@@ -770,13 +821,14 @@
 
   function realExamRowsTable(rows) {
     return `<table class="compact-results-table">
-      <thead><tr><th>#</th><th>Học viên</th><th>Group</th><th>Điểm</th><th>Đúng</th><th>Thời gian</th><th>Nộp bài</th></tr></thead>
+      <thead><tr><th>#</th><th>Học viên</th><th>Group</th><th>Điểm</th><th>Đúng</th><th>Rời màn hình</th><th>Thời gian</th><th>Nộp bài</th></tr></thead>
       <tbody>${rows.map((row, index) => `<tr>
         <td>${index + 1}</td>
         <td><b>${esc(row.student_name || "")}</b></td>
         <td>${esc(row.group_name || "Chưa phân nhóm")}</td>
         <td>${Number(row.score).toFixed(2)}</td>
         <td>${Number(row.correct_count || 0)}/${Number(row.total_questions || 0)}</td>
+        <td class="${Number(row.focus_violation_count || 0) > 0 ? "violation-count" : ""}">${Number(row.focus_violation_count || 0)}</td>
         <td>${formatExportDuration(row.duration_seconds)}</td>
         <td>${formatExportDateTime(row.submitted_at)}</td>
       </tr>`).join("")}</tbody>
@@ -855,13 +907,14 @@
       }
       target.classList.remove("muted");
       target.innerHTML = `<table class="compact-results-table">
-        <thead><tr><th>#</th><th>Học viên</th><th>Group</th><th>Điểm</th><th>Đúng</th><th>Thời gian</th><th>Nộp bài</th></tr></thead>
+        <thead><tr><th>#</th><th>Học viên</th><th>Group</th><th>Điểm</th><th>Đúng</th><th>Rời màn hình</th><th>Thời gian</th><th>Nộp bài</th></tr></thead>
         <tbody>${rows.map((row, index) => `<tr>
           <td>${index + 1}</td>
           <td><b>${esc(row.student_name || "")}</b></td>
           <td>${esc(row.group_name || "Chưa phân nhóm")}</td>
           <td>${Number(row.score).toFixed(2)}</td>
           <td>${Number(row.correct_count || 0)}/${Number(row.total_questions || 0)}</td>
+          <td class="${Number(row.focus_violation_count || 0) > 0 ? "violation-count" : ""}">${Number(row.focus_violation_count || 0)}</td>
           <td>${formatExportDuration(row.duration_seconds)}</td>
           <td>${formatExportDateTime(row.submitted_at)}</td>
         </tr>`).join("")}</tbody>
@@ -908,10 +961,11 @@
         <label>Đường dẫn<input id="spaceSlugInput" name="slug" value="${esc(space.slug)}" pattern="[a-z0-9-]+" required></label>
         <div class="path-example"><span>Ví dụ</span><code>&lt;Đường dẫn của ứng dụng&gt;/&lt;Slug&gt;</code><small id="spaceUrlPreview">${esc(new URL(encodeURIComponent(space.slug || "slug"), quizBaseUrl).href)}</small></div>
       </div>
-      <label class="switch publish-switch"><input name="published" type="checkbox" ${space.published ? "checked" : ""}><span class="switch-track"></span><span>Đã xuất bản</span></label>
+      <label class="switch publish-switch"><input name="published" type="checkbox" ${space.published ? "checked" : ""}><span class="switch-track"></span><span data-publish-status>${space.published ? "Online" : "Offline"}</span></label>
       <div class="actions"><button class="primary">Lưu</button><button type="button" data-close>Hủy</button></div>
     </form>`);
     document.querySelector("[data-close]").onclick = closeDialog;
+    wirePublishStatusLabel(dialog);
     document.getElementById("spaceSlugInput").oninput = (event) => {
       document.getElementById("spaceUrlPreview").textContent = new URL(
         encodeURIComponent(event.target.value || "slug"),
@@ -950,11 +1004,71 @@
     }
   }
 
-  async function deleteSpace(id) {
-    if (!confirm("Xóa Space và toàn bộ Group/câu hỏi của Space này?")) return;
-    const { error } = await client.from("spaces").delete().eq("id", id);
-    if (error) return setStatus(error.message, true);
-    await renderSpaces();
+  /**
+   * @param {HTMLElement} container
+   * @returns {void}
+   */
+  function wirePublishStatusLabel(container) {
+    const input = container.querySelector('[name="published"]');
+    const label = container.querySelector("[data-publish-status]");
+    if (!input || !label) return;
+    const sync = () => { label.textContent = input.checked ? "Online" : "Offline"; };
+    input.onchange = sync;
+    sync();
+  }
+
+  /**
+   * Opens the destructive confirmation flow for a Space.
+   *
+   * @param {number} id
+   * @returns {void}
+   */
+  function deleteSpace(id) {
+    if (state.profile?.role !== "superadmin") return setStatus("Chỉ superadmin được xóa Space.", true);
+    const space = state.spaces.find((item) => item.id === id);
+    if (!space) return setStatus("Space không tồn tại.", true);
+    openDialog(`<form id="deleteSpaceForm" class="grid destructive-confirmation" aria-labelledby="deleteSpaceTitle">
+      <div>
+        <span class="destructive-eyebrow">Thao tác không thể hoàn tác</span>
+        <h2 id="deleteSpaceTitle">Xóa Space “${esc(space.name)}”</h2>
+        <p>Toàn bộ dữ liệu thi thử, thi thật, Group, Bộ câu hỏi và ngân hàng câu hỏi của Space này sẽ bị xóa.</p>
+      </div>
+      <div class="delete-space-identity"><span>Slug cần xác nhận</span><code>${esc(space.slug)}</code></div>
+      <label>Nhập chính xác slug để xác nhận<input id="deleteSpaceSlug" name="slug" autocomplete="off" spellcheck="false" required></label>
+      <div class="actions"><button type="button" data-close>Hủy</button><button class="danger" id="confirmDeleteSpaceBtn" disabled>Xóa vĩnh viễn</button></div>
+    </form>`, "destructive-dialog");
+    const form = document.getElementById("deleteSpaceForm");
+    const slugInput = document.getElementById("deleteSpaceSlug");
+    const deleteButton = document.getElementById("confirmDeleteSpaceBtn");
+    document.querySelector("[data-close]").onclick = closeDialog;
+    slugInput.oninput = () => { deleteButton.disabled = slugInput.value !== space.slug; };
+    form.onsubmit = (event) => confirmDeleteSpace(event, space);
+    slugInput.focus();
+  }
+
+  /**
+   * @param {SubmitEvent} event
+   * @param {{ id: number, name: string, slug: string }} space
+   * @returns {Promise<void>}
+   */
+  async function confirmDeleteSpace(event, space) {
+    event.preventDefault();
+    const form = new FormData(event.target);
+    const confirmedSlug = String(form.get("slug") || "");
+    if (confirmedSlug !== space.slug) return showDialogError("Slug xác nhận không khớp.");
+    const restoreButton = setButtonBusy(event.submitter, "Đang xóa...");
+    try {
+      const { data, error } = await client.rpc("delete_space_cascade", {
+        requested_space_id: space.id,
+        requested_slug: confirmedSlug
+      });
+      if (error) return showDialogError(error.message);
+      closeDialog();
+      setStatus(`Đã xóa Space “${space.name}” và ${Number(data?.quiz_attempts_deleted || 0)} kết quả thi liên quan.`);
+      await renderSpaces();
+    } finally {
+      restoreButton();
+    }
   }
 
   async function exportRealExamResults(id) {
@@ -1015,6 +1129,7 @@
         "Đúng": Number(row.correct_count),
         "Sai": Number(row.wrong_count),
         "Tổng số câu": Number(row.total_questions),
+        "Số lần rời màn hình": Number(row.focus_violation_count || 0),
         "Thời gian làm bài": formatExportDuration(row.duration_seconds),
         "Bắt đầu làm bài": formatExportDateTime(row.started_at),
         "Nộp bài": formatExportDateTime(row.submitted_at)
@@ -1022,7 +1137,7 @@
       const worksheet = XLSX.utils.json_to_sheet(sheetRows);
       worksheet["!cols"] = [
         { wch: 24 }, { wch: 42 }, { wch: 28 }, { wch: 10 }, { wch: 10 },
-        { wch: 10 }, { wch: 12 }, { wch: 20 }, { wch: 22 }, { wch: 22 }
+        { wch: 10 }, { wch: 12 }, { wch: 20 }, { wch: 20 }, { wch: 22 }, { wch: 22 }
       ];
       const examFillColors = {
         1: "FFFF00",
@@ -1032,7 +1147,7 @@
       rows.forEach((row, index) => {
         const fillColor = examFillColors[Number(row.exam_rank)];
         if (!fillColor) return;
-        for (let column = 0; column < 10; column += 1) {
+        for (let column = 0; column < 11; column += 1) {
           const cell = worksheet[XLSX.utils.encode_cell({ r: index + 1, c: column })];
           if (cell) {
             cell.s = {
@@ -1493,8 +1608,8 @@
     const view = document.getElementById("view");
     view.innerHTML = `<header class="topbar"><div><h1>Backup & Restore</h1><p class="muted">Chỉ superadmin được phép thực hiện.</p></div></header>
       <section class="grid two">
-        <div class="panel grid"><h2>Tạo backup</h2><p class="muted">Xuất Space, Group, câu hỏi, phân quyền và kết quả thành JSON.</p><button class="primary" id="backupBtn">Tải backup</button></div>
-        <div class="panel grid"><h2>Restore</h2><input id="restoreFile" type="file" accept=".json,application/json"><label class="switch"><input id="replaceRestore" type="checkbox"><span class="switch-track"></span><span>Thay thế dữ liệu hiện tại</span></label><button class="danger" id="restoreBtn">Restore dữ liệu</button></div>
+        <div class="panel grid"><h2>Tạo backup</h2><p class="muted">Xuất toàn bộ hồ sơ quản trị, Space, phân quyền, Group, Bộ câu hỏi, ngân hàng câu hỏi và kết quả thi thành JSON. Mật khẩu đăng nhập do Supabase Auth quản lý và không được xuất.</p><button class="primary" id="backupBtn">Tải backup</button></div>
+        <div class="panel grid"><h2>Restore</h2><p class="muted">Dữ liệu trong file sẽ thay thế toàn bộ dữ liệu ứng dụng hiện tại. Một bản backup an toàn sẽ được tải xuống trước khi restore.</p><input id="restoreFile" type="file" accept=".json,application/json"><button class="danger" id="restoreBtn">Thay thế toàn bộ dữ liệu</button></div>
       </section>`;
     document.getElementById("backupBtn").onclick = createBackup;
     document.getElementById("restoreBtn").onclick = restoreBackup;
@@ -1534,21 +1649,34 @@
   async function restoreBackup() {
     const file = document.getElementById("restoreFile").files[0];
     if (!file) return setStatus("Chọn file backup trước.", true);
-    if (!confirm("Restore sẽ thay đổi dữ liệu ứng dụng. Tiếp tục?")) return;
+    if (!confirm("Restore sẽ thay thế toàn bộ dữ liệu ứng dụng hiện tại. Tiếp tục?")) return;
     let payload;
     try {
       payload = JSON.parse(await file.text());
     } catch {
       return setStatus("File backup không phải JSON hợp lệ.", true);
     }
+    if (!isValidBackupPayload(payload)) return setStatus("File backup thiếu dữ liệu bắt buộc hoặc sai phiên bản schema.", true);
     const { data: safetyBackup, error: backupError } = await client.rpc("backup_app_data");
     if (backupError) return setStatus(`Không tạo được backup an toàn: ${backupError.message}`, true);
     downloadBackup(safetyBackup, "vn-quiz-before-restore");
     const { data, error } = await client.rpc("restore_app_data", {
       payload,
-      replace_existing: document.getElementById("replaceRestore").checked
+      replace_existing: true
     });
     setStatus(error ? error.message : `Restore thành công: ${JSON.stringify(data)}`, Boolean(error));
+  }
+
+  /**
+   * @param {unknown} payload
+   * @returns {boolean}
+   */
+  function isValidBackupPayload(payload) {
+    const requiredCollections = ["profiles", "spaces", "space_admins", "groups", "question_sets", "questions", "quiz_attempts"];
+    return payload !== null
+      && typeof payload === "object"
+      && Number(payload.schema_version) === 1
+      && requiredCollections.every((key) => Array.isArray(payload[key]));
   }
 
   function showDialogError(message) {
@@ -1562,4 +1690,5 @@
   }
 
   boot();
+  startAppVersionMonitoring();
 })();

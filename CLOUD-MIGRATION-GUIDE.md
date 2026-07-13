@@ -45,6 +45,8 @@ Trong Supabase SQL Editor:
 7. Chạy `supabase/add_space_status_rpc.sql` để frontend trả về 404 cho Space chưa Published.
 8. Chạy `supabase/add_real_exam_result_export.sql` để lưu mã đợt Thi thật và cho phép Admin xuất Excel 3 đợt gần nhất.
 9. Chạy `supabase/add_scoring_methods.sql` để thêm Cách tính điểm 1/2 cho từng Space và từng lượt thi.
+10. Chạy `supabase/add_focus_violation_tracking.sql` để lưu số lần học viên rời màn hình thi và bổ sung dữ liệu này vào kết quả quản trị/Excel.
+11. Chạy `supabase/add_safe_space_delete_and_full_restore.sql` để giới hạn quyền xóa Space, xóa đầy đủ dữ liệu liên quan và buộc Restore thay thế toàn bộ dữ liệu hiện tại.
 
 Các script dùng `if exists`/`if not exists` ở những vị trí cần thiết và không xóa dữ liệu kết quả cũ.
 

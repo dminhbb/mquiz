@@ -4,6 +4,7 @@ const archiver = require("archiver");
 const { db } = require("./db");
 const { frontendDir, cloudAdminDir, distDir, exportDir } = require("./config");
 const { sha256, randomToken, answerHash } = require("./crypto-utils");
+const { stampDeployAppVersion } = require("./app-version");
 
 function ensureDir(dir) {
   fs.mkdirSync(dir, { recursive: true });
@@ -108,6 +109,7 @@ function rebuildIndex() {
 function exportDeployZip() {
   copyDir(frontendDir, distDir);
   copyDir(cloudAdminDir, path.join(distDir, "admin"));
+  stampDeployAppVersion(distDir);
   rebuildIndex();
   ensureDir(exportDir);
   const zipPath = path.join(exportDir, `simple-quiz-deploy-${Date.now()}.zip`);

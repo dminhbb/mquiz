@@ -1,6 +1,16 @@
 (function () {
   const app = document.getElementById("app");
   const basePath = window.__SQ_BASE_PATH__ || "";
+  const APP_VERSION = document.querySelector('meta[name="app-version"]')?.content || "unknown";
+  const APP_VERSION_URL = new URL(
+    "../app-version.json",
+    document.currentScript?.src || window.location.origin
+  ).href;
+  const APP_VERSION_CHECK_INTERVAL_MS = 60_000;
+  const MAX_FOCUS_VIOLATION_COUNT = 1_000;
+  const FOCUS_WARNING_THRESHOLD = 2;
+  const COPY_PROTECTED_SELECTOR = "[data-copy-protected]";
+  const COPY_PROTECTION_EVENT_NAMES = ["contextmenu", "copy", "dragstart", "selectstart"];
   const state = {
     theme: localStorage.getItem("sq-theme") || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"),
     space: null,
@@ -30,11 +40,32 @@
     leaderboardVisible: false,
     leaderboardStatus: "",
     leaderboardRows: [],
-    expandedDays: {}
+    expandedDays: {},
+    focusViolationCount: 0,
+    examWindowAway: false,
+    updateAvailableVersion: ""
   };
 
   document.documentElement.dataset.theme = state.theme;
-  document.addEventListener("contextmenu", (event) => event.preventDefault());
+  COPY_PROTECTION_EVENT_NAMES.forEach((eventName) => {
+    document.addEventListener(eventName, preventProtectedContentCopy);
+  });
+  document.addEventListener("visibilitychange", handleExamVisibilityChange);
+  window.addEventListener("blur", recordExamWindowDeparture);
+  window.addEventListener("focus", markExamWindowActive);
+
+  /**
+   * Prevents selecting, dragging, opening a context menu, or copying quiz content.
+   *
+   * @param {Event} event
+   * @returns {void}
+   */
+  function preventProtectedContentCopy(event) {
+    const target = event.target;
+    if (target instanceof Element && target.closest(COPY_PROTECTED_SELECTOR)) {
+      event.preventDefault();
+    }
+  }
 
   const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
   const sorted = (letters) => [...new Set(letters || [])].sort();
@@ -193,15 +224,99 @@
   function renderShell(content) {
     app.innerHTML = `<div class="shell"><header class="topbar"><div class="brand">mquiz</div><button class="ghost" id="themeBtn">${state.theme === "dark" ? "Light" : "Dark"}</button></header><main>${content}</main><footer class="app-copyright">mquiz (C) 2026 | minhnd7</footer></div>`;
     document.getElementById("themeBtn").onclick = toggleTheme;
+    syncAppUpdateToast();
   }
 
   function showToast(message, tone = "info") {
-    document.querySelectorAll(".toast").forEach((item) => item.remove());
+    document.querySelectorAll(".toast:not(.app-update-toast)").forEach((item) => item.remove());
     const toast = document.createElement("div");
     toast.className = `toast ${tone}`;
     toast.textContent = message;
     document.body.appendChild(toast);
     window.setTimeout(() => toast.remove(), 3600);
+  }
+
+  function isQuizInProgress() {
+    return state.started && !state.done;
+  }
+
+  function syncAppUpdateToast() {
+    const existingToast = document.querySelector(".app-update-toast");
+    if (!state.updateAvailableVersion || isQuizInProgress()) {
+      existingToast?.remove();
+      return;
+    }
+    if (existingToast) return;
+    const toast = document.createElement("button");
+    toast.type = "button";
+    toast.className = "toast app-update-toast";
+    toast.textContent = "Làm mới ứng dụng";
+    toast.setAttribute("aria-label", "Có phiên bản mới. Làm mới ứng dụng");
+    toast.onclick = forceRefreshApplication;
+    document.body.appendChild(toast);
+  }
+
+  function forceRefreshApplication() {
+    const target = new URL(window.location.href);
+    target.searchParams.set("app_version", state.updateAvailableVersion || String(Date.now()));
+    window.location.replace(target.href);
+  }
+
+  /**
+   * Checks the no-cache deployment flag against the version loaded by this page.
+   *
+   * @returns {Promise<void>}
+   */
+  async function checkForAppUpdate() {
+    try {
+      const response = await fetch(APP_VERSION_URL, { cache: "no-store" });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const payload = await response.json();
+      const latestVersion = typeof payload?.version === "string" ? payload.version.trim() : "";
+      if (!latestVersion) throw new Error("Dữ liệu phiên bản không hợp lệ.");
+      if (latestVersion !== APP_VERSION) {
+        state.updateAvailableVersion = latestVersion;
+        syncAppUpdateToast();
+      }
+    } catch (error) {
+      console.warn("Không thể kiểm tra phiên bản mới của ứng dụng.", error);
+    }
+  }
+
+  function startAppVersionMonitoring() {
+    checkForAppUpdate();
+    window.setInterval(checkForAppUpdate, APP_VERSION_CHECK_INTERVAL_MS);
+  }
+
+  function handleExamVisibilityChange() {
+    if (document.hidden) recordExamWindowDeparture();
+    else markExamWindowActive();
+  }
+
+  /**
+   * Records one violation for a continuous period outside the exam window.
+   *
+   * @returns {void}
+   */
+  function recordExamWindowDeparture() {
+    if (!isQuizInProgress() || state.examWindowAway) return;
+    state.examWindowAway = true;
+    state.focusViolationCount = Math.min(
+      MAX_FOCUS_VIOLATION_COUNT,
+      state.focusViolationCount + 1
+    );
+    updateExamMonitorWarning();
+  }
+
+  function markExamWindowActive() {
+    if (!document.hidden) state.examWindowAway = false;
+  }
+
+  function updateExamMonitorWarning() {
+    const warning = document.getElementById("examMonitorWarning");
+    const count = document.querySelector("[data-focus-violation-count]");
+    if (count) count.textContent = String(state.focusViolationCount);
+    warning?.classList.toggle("hidden", state.focusViolationCount <= FOCUS_WARNING_THRESHOLD);
   }
 
   function confirmDialog({ title, message, details = "", confirmText = "Tiếp tục", cancelText = "Hủy", danger = false }) {
@@ -351,7 +466,7 @@
             <h1>Cấu hình bài thi</h1>
           </div>
         </header>
-        ${realTimeClosed ? `<section class="attempts-exhausted"><strong>Hết thời gian thi</strong><p>Bắt đầu: ${esc(formatWindowDateTime(realWindow.start))}</p><p>Kết thúc: ${esc(formatWindowDateTime(realWindow.end))}</p></section>` : realExhausted ? `<section class="attempts-exhausted"><strong>Bạn đã hết số lượt thi !</strong><p>Số lượt thi là: ${maxRealAttempts}</p></section>` : `<section class="setup-actionbar">
+        ${realTimeClosed ? `<section class="attempts-exhausted"><strong>Chưa tới giờ thi hoặc Đã quá thời gian thi.</strong><p>Bắt đầu: ${esc(formatWindowDateTime(realWindow.start))}</p><p>Kết thúc: ${esc(formatWindowDateTime(realWindow.end))}</p></section>` : realExhausted ? `<section class="attempts-exhausted"><strong>Bạn đã hết số lượt thi !</strong><p>Số lượt thi là: ${maxRealAttempts}</p></section>` : `<section class="setup-actionbar">
           <div class="mode-control">
             <b>Chế độ làm bài</b>
             ${realExam ? `<span class="real-mode-label">Chế độ thi thật</span>` : `<div class="mode-toggle" role="group" aria-label="Chế độ làm bài">
@@ -576,6 +691,8 @@
     state.resultSaveStatus = "";
     state.scoreBreakdown = null;
     state.leaderboardVisible = false;
+    state.focusViolationCount = 0;
+    state.examWindowAway = false;
     state.startedAt = Date.now();
     state.started = true;
     renderQuestion(true);
@@ -769,7 +886,11 @@
         ${showTimer ? `<div class="timer ${locked ? "expired" : ""}" id="timer">${timerLabel(locked)}</div>` : ""}
       </div>
       <div class="progress" style="--value:${progress}%"><div></div></div>
-      <div class="panel grid quiz-panel">
+      <aside class="exam-monitor-warning ${state.focusViolationCount > FOCUS_WARNING_THRESHOLD ? "" : "hidden"}" id="examMonitorWarning" aria-live="polite">
+        <strong>Cảnh báo chống gian lận</strong>
+        <span>Không rời khỏi màn hình thi. Hệ thống đã ghi nhận <b data-focus-violation-count>${state.focusViolationCount}</b> lần rời màn hình.</span>
+      </aside>
+      <div class="panel grid quiz-panel" data-copy-protected>
         <div class="type-pill ${question.type === "multi" ? "multi" : ""}">${question.type === "single" ? "Một đáp án" : "Nhiều lựa chọn"}</div>
         <div class="large-question">${esc(question.content)}</div>
         <div class="grid options-grid">${Object.entries(question.options).map(([letter, text]) => {
@@ -982,6 +1103,7 @@
     updateCorrectnessFromAnswers();
     state.scoreBreakdown = calculateCompositeScore();
     state.done = true;
+    state.examWindowAway = false;
     state.resultSaveStatus = "";
     if (shouldSaveResult) {
       await saveExamAttempt();
@@ -1036,7 +1158,8 @@
         coverage_score: breakdown.coverageScore,
         duration_score: breakdown.durationScore,
         punctuality_score: breakdown.punctualityScore,
-        scoring_method: breakdown.scoringMethod
+        scoring_method: breakdown.scoringMethod,
+        focus_violation_count: Math.min(MAX_FOCUS_VIOLATION_COUNT, state.focusViolationCount)
       });
       if (error) throw error;
       state.resultSaveStatus = "Đã lưu kết quả thi.";
@@ -1174,4 +1297,5 @@
   }
 
   boot();
+  startAppVersionMonitoring();
 })();
