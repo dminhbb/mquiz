@@ -611,6 +611,37 @@ h3 { font-size: 18px; }
 .quiz-panel {
   padding: clamp(14px, 2.6vw, 22px);
   gap: clamp(10px, 2vh, 14px);
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.exam-monitor-warning {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid color-mix(in srgb, var(--wrong), transparent 28%);
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: color-mix(in srgb, var(--wrong), var(--sheet) 91%);
+  color: var(--wrong);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.exam-monitor-warning.hidden {
+  display: none;
+}
+
+.exam-monitor-warning strong {
+  flex: 0 0 auto;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.exam-monitor-warning b {
+  font-variant-numeric: tabular-nums;
 }
 
 .quiz-panel .large-question {
@@ -725,6 +756,24 @@ h3 { font-size: 18px; }
   color: var(--warn);
 }
 
+.toast.app-update-toast {
+  min-height: 44px;
+  border-color: rgba(255, 255, 255, .22);
+  background: rgba(0, 0, 0, .7);
+  color: #ffffff;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .18);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.toast.app-update-toast:hover {
+  background: rgba(0, 0, 0, .82);
+}
+
+.toast.app-update-toast:focus-visible {
+  outline-color: rgba(255, 255, 255, .8);
+}
+
 .dialog-backdrop {
   position: fixed;
   inset: 0;
@@ -825,6 +874,7 @@ h3 { font-size: 18px; }
   .setup-actions button { width: 100%; }
   .question-footer { align-items: stretch; flex-direction: column; }
   .question-footer .actions { width: 100%; }
+  .exam-monitor-warning { align-items: flex-start; flex-direction: column; gap: 4px; }
   .shell main:has(.quiz-panel) .screen { min-height: calc(100vh - 78px); }
 }
 

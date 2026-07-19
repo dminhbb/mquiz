@@ -59,6 +59,12 @@ Có thể chạy riêng migration `supabase/add_quiz_attempt_metadata.sql` để
 
 Khi bật tính năng Thi thật, chạy thêm `supabase/add_real_exam_mode.sql` để đổi dữ liệu chế độ cũ từ `exam` sang `mock` và cho phép lưu kết quả `real`.
 
+Khi bật theo dõi rời màn hình thi, chạy `supabase/add_focus_violation_tracking.sql`. Có thể rollback bằng `supabase/rollback_focus_violation_tracking.sql` sau khi đã rollback phần code frontend/admin tương ứng.
+
+Chạy `supabase/add_safe_space_delete_and_full_restore.sql` để chỉ superadmin được xóa Space, dọn toàn bộ kết quả liên quan theo slug và buộc Restore thay thế toàn bộ dữ liệu ứng dụng. File rollback tương ứng là `supabase/rollback_safe_space_delete_and_full_restore.sql`.
+
+Trước mỗi lần deploy frontend hoặc trang quản trị, chạy `npm run version:bump` để cập nhật cờ phiên bản và cache-buster. Có thể truyền version cụ thể, ví dụ `npm run version:bump -- 2026.07.13.2`.
+
 ## Tạo file ZIP để deploy lên Netlify
 
 Trước khi tạo file ZIP:
