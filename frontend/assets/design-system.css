@@ -33,6 +33,32 @@
   --exam-shadow-float: 0 0 0 1px rgba(29, 40, 34, .08), 0 18px 48px rgba(29, 40, 34, .16);
   --exam-shadow-soft: 0 0 0 1px rgba(29, 40, 34, .06), 0 2px 8px rgba(29, 40, 34, .04);
 
+  --student-paper: #f1efec;
+  --student-paper-raised: #f9f8f6;
+  --student-sheet: #fffefd;
+  --student-inset: #e9e5e1;
+  --student-ink: #302b28;
+  --student-ink-secondary: #665e59;
+  --student-ink-tertiary: #827973;
+  --student-ink-disabled: #a39b95;
+  --student-clay: #795c50;
+  --student-clay-strong: #5c453b;
+  --student-clay-wash: #f0e6e0;
+  --student-clay-quiet: #e1d1c8;
+  --student-correct: #4c765b;
+  --student-correct-wash: #e3eee6;
+  --student-wrong: #a94f4b;
+  --student-wrong-wash: #f6e7e5;
+  --student-warning: #896b33;
+  --student-warning-wash: #f6eedc;
+  --student-line: rgba(48, 43, 40, .14);
+  --student-line-soft: rgba(48, 43, 40, .08);
+  --student-line-strong: rgba(48, 43, 40, .22);
+  --student-focus: rgba(121, 92, 80, .28);
+  --student-overlay: rgba(30, 26, 24, .54);
+  --student-shadow-float: 0 0 0 1px rgba(48, 43, 40, .08), 0 18px 48px rgba(48, 43, 40, .14);
+  --student-shadow-soft: 0 0 0 1px rgba(48, 43, 40, .06), 0 2px 8px rgba(48, 43, 40, .035);
+
   --radius-control: 6px;
   --radius-panel: 10px;
   --radius-dialog: 14px;
@@ -75,6 +101,32 @@
   --exam-overlay: rgba(0, 0, 0, .66);
   --exam-shadow-float: 0 0 0 1px rgba(255, 255, 255, .1);
   --exam-shadow-soft: 0 0 0 1px rgba(255, 255, 255, .08);
+
+  --student-paper: #181514;
+  --student-paper-raised: #211d1b;
+  --student-sheet: #292321;
+  --student-inset: #120f0e;
+  --student-ink: #f2eeeb;
+  --student-ink-secondary: #c5bab4;
+  --student-ink-tertiary: #9e918a;
+  --student-ink-disabled: #786e68;
+  --student-clay: #bf9788;
+  --student-clay-strong: #dfbeb1;
+  --student-clay-wash: #452f28;
+  --student-clay-quiet: #5a3c32;
+  --student-correct: #88b697;
+  --student-correct-wash: #1c3826;
+  --student-wrong: #e1968f;
+  --student-wrong-wash: #402421;
+  --student-warning: #d8b572;
+  --student-warning-wash: #3b301e;
+  --student-line: rgba(255, 255, 255, .11);
+  --student-line-soft: rgba(255, 255, 255, .07);
+  --student-line-strong: rgba(255, 255, 255, .2);
+  --student-focus: rgba(191, 151, 136, .34);
+  --student-overlay: rgba(0, 0, 0, .66);
+  --student-shadow-float: 0 0 0 1px rgba(255, 255, 255, .1);
+  --student-shadow-soft: 0 0 0 1px rgba(255, 255, 255, .08);
 }
 
 html {
@@ -187,4 +239,3 @@ textarea,
     transition-duration: .01ms !important;
   }
 }
-

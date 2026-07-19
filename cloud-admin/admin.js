@@ -318,12 +318,14 @@
   function openSpaceSettings(spaceId, activeTab = "info") {
     const space = state.spaces.find((item) => item.id === spaceId);
     if (!space) return setStatus("Space không tồn tại.", true);
+    const canManageResults = state.profile?.role === "superadmin";
+    const resolvedTab = activeTab === "results" && !canManageResults ? "info" : activeTab;
     const tabs = [
       ["info", "Sửa thông tin Space"],
       ["groups", "Quản lý nhóm trong Space"],
       ["questions", "Quản lý Ngân hàng câu hỏi"],
       ["real", "Quản lý Đợt thi thật"],
-      ["results", "Quản lý kết quả"]
+      ...(canManageResults ? [["results", "Quản lý kết quả"]] : [])
     ];
     openDialog(`<section class="space-settings">
       <aside class="space-settings-nav">
@@ -332,13 +334,13 @@
           <h2>${esc(space.name)}</h2>
           <p class="muted">/${esc(space.slug)}</p>
         </div>
-        <nav>${tabs.map(([key, label]) => `<button type="button" class="${key === activeTab ? "active" : ""}" data-settings-tab="${key}">${label}</button>`).join("")}</nav>
+        <nav>${tabs.map(([key, label]) => `<button type="button" class="${key === resolvedTab ? "active" : ""}" data-settings-tab="${key}">${label}</button>`).join("")}</nav>
       </aside>
       <div class="space-settings-main" id="spaceSettingsPanel"></div>
     </section>`, "space-settings-dialog");
     bind("[data-settings-tab]", (button) => renderSpaceSettingsPanel(spaceId, button.dataset.settingsTab));
     window.lucide?.createIcons();
-    renderSpaceSettingsPanel(spaceId, activeTab);
+    renderSpaceSettingsPanel(spaceId, resolvedTab);
   }
 
   async function renderSpaceSettingsPanel(spaceId, tab) {
@@ -346,6 +348,9 @@
     const space = state.spaces.find((item) => item.id === spaceId);
     const panel = document.getElementById("spaceSettingsPanel");
     if (!space || !panel) return;
+    if (tab === "results" && state.profile?.role !== "superadmin") {
+      return renderSpaceSettingsPanel(spaceId, "info");
+    }
     document.querySelectorAll("[data-settings-tab]").forEach((button) => {
       button.classList.toggle("active", button.dataset.settingsTab === tab);
     });

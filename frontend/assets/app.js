@@ -12,7 +12,7 @@
   const COPY_PROTECTED_SELECTOR = "[data-copy-protected]";
   const COPY_PROTECTION_EVENT_NAMES = ["contextmenu", "copy", "dragstart", "selectstart"];
   const state = {
-    theme: localStorage.getItem("sq-theme") || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"),
+    theme: "light",
     space: null,
     cloud: false,
     dataToken: null,
@@ -49,6 +49,7 @@
     updateAvailableVersion: ""
   };
 
+  localStorage.removeItem("sq-theme");
   document.documentElement.dataset.theme = state.theme;
   COPY_PROTECTION_EVENT_NAMES.forEach((eventName) => {
     document.addEventListener(eventName, preventProtectedContentCopy);
@@ -292,8 +293,7 @@
       .map((id) => Number(id))
       .filter((id) => questionSets.some((set) => Number(set.id) === id));
     state.selectedQuestionSetIds = savedSetIds.length ? savedSetIds : questionSets.map((set) => Number(set.id));
-    const savedGroup = localStorage.getItem(`sq_group_${state.slug}`) || "";
-    state.groupName = groups.includes(savedGroup) ? savedGroup : "";
+    resetGroupSelection();
     if (isRealExamExperience()) {
       state.mode = "real";
       state.percent = Number(state.space.real_exam.question_percent || 50);
@@ -305,7 +305,7 @@
   }
 
   function renderShell(content) {
-    app.innerHTML = `<div class="shell"><header class="topbar"><div class="brand" aria-label="mquiz"><span>m</span>quiz</div><button class="ghost theme-button" id="themeBtn" aria-pressed="${state.theme === "dark"}">${state.theme === "dark" ? "Giao diện sáng" : "Giao diện tối"}</button></header><main id="main-content" tabindex="-1">${content}</main><footer class="app-copyright">mquiz © 2026 · minhnd7</footer></div>`;
+    app.innerHTML = `<div class="shell"><header class="topbar"><div class="brand" aria-label="mquiz"><span>m</span>quiz</div></header><main id="main-content" tabindex="-1">${content}</main><footer class="app-copyright">mquiz © 2026 · minhnd7</footer></div><button class="ghost theme-fab" id="themeBtn" type="button" aria-pressed="${state.theme === "dark"}" aria-label="${state.theme === "dark" ? "Chuyển sang giao diện sáng" : "Chuyển sang giao diện tối"}">${state.theme === "dark" ? "Light" : "Dark"}</button>`;
     document.getElementById("themeBtn").onclick = toggleTheme;
     syncAppUpdateToast();
   }
@@ -431,9 +431,12 @@
   function toggleTheme() {
     state.theme = state.theme === "dark" ? "light" : "dark";
     document.documentElement.dataset.theme = state.theme;
-    localStorage.setItem("sq-theme", state.theme);
     const btn = document.getElementById("themeBtn");
-    if (btn) btn.textContent = state.theme === "dark" ? "Light" : "Dark";
+    if (btn) {
+      btn.textContent = state.theme === "dark" ? "Light" : "Dark";
+      btn.setAttribute("aria-pressed", String(state.theme === "dark"));
+      btn.setAttribute("aria-label", state.theme === "dark" ? "Chuyển sang giao diện sáng" : "Chuyển sang giao diện tối");
+    }
   }
 
   function renderWelcome() {
@@ -444,6 +447,11 @@
   function renderNotFound() {
     stopTimer();
     renderShell(`<section class="screen center"><div class="text-center"><h1>404 error</h1><p class="muted">Space chưa được phát hành hoặc không thể truy cập.</p></div></section>`);
+  }
+
+  function resetGroupSelection() {
+    localStorage.removeItem(`sq_group_${state.slug}`);
+    state.groupName = "";
   }
 
   function renderSpaceLoadError() {
@@ -557,6 +565,8 @@
     } else if (realExam && (realWindow.phase === "after" || realEnded)) {
       realAvailabilityNotice = `<section class="real-exam-availability ended" role="status"><span class="real-exam-space-name">${esc(realSpaceName)}</span><strong>${esc(realExamIdentity)}</strong><p>Đã hết thời gian đợt thi</p><p>${esc(realWindowLabel)}</p></section>`;
     }
+    const visibleQuestionPercents = realExam ? [state.percent] : [30, 50, 70, 100];
+    const visibleTimerOptions = realExam ? [state.timerSeconds] : timerOptions;
     renderShell(`<section class="leaderboard-shell setup-dashboard">
       <aside class="setup-sidebar">
         <div class="setup-logo"><span>mq</span><b>mquiz</b></div>
@@ -618,12 +628,12 @@
           </section>
           <section class="setup-widget">
             <div class="widget-title"><h2>Số lượng câu hỏi</h2><p>Lấy ngẫu nhiên, không lặp câu.</p></div>
-            <div class="choice-grid compact">${[30, 50, 70, 100].map((percent) => `<button class="${state.percent === percent ? "active" : ""}" data-percent="${percent}" ${realExam ? "disabled" : ""}><b>${percent}%</b><span>${calcQuestionCount(total, percent)} câu</span></button>`).join("")}</div>
+            <div class="choice-grid compact ${realExam ? "configured-choice-grid" : ""}">${visibleQuestionPercents.map((percent) => `<button class="${state.percent === percent ? "active" : ""}" data-percent="${percent}" ${realExam ? "disabled" : ""}><b>${percent}%</b><span>${calcQuestionCount(total, percent)} câu</span></button>`).join("")}</div>
           </section>
           <section class="setup-widget">
             <div class="widget-title"><h2>Thời gian mỗi câu</h2><p>Áp dụng riêng cho từng câu hỏi.</p></div>
             <div class="choice-grid timer-grid">
-              ${timerOptions.map((seconds) => `<button class="${Number(state.timerSeconds) === seconds ? "active" : ""}" data-timer="${seconds}" ${realExam ? "disabled" : ""}><b>${seconds}s</b></button>`).join("")}
+              ${visibleTimerOptions.map((seconds) => `<button class="${Number(state.timerSeconds) === seconds ? "active" : ""}" data-timer="${seconds}" ${realExam ? "disabled" : ""}><b>${seconds}s</b></button>`).join("")}
               ${state.mode === "practice" ? `<button class="${state.timerSeconds === null ? "active" : ""}" data-timer="none"><b>Không giới hạn</b></button>` : ""}
             </div>
           </section>
@@ -644,7 +654,6 @@
     const groupNameSelect = document.getElementById("groupName");
     if (groupNameSelect) groupNameSelect.onchange = (event) => {
       state.groupName = event.target.value;
-      localStorage.setItem(`sq_group_${state.slug}`, state.groupName);
     };
     const startButton = document.getElementById("startBtn");
     if (startButton) startButton.onclick = startQuiz;
@@ -656,6 +665,7 @@
   function switchStudent() {
     localStorage.removeItem("sq_student_name");
     state.studentName = "";
+    resetGroupSelection();
     state.started = false;
     state.done = false;
     state.resultSaveStatus = "";
@@ -773,7 +783,6 @@
     }
     state.studentName = name;
     localStorage.setItem("sq_student_name", name);
-    localStorage.setItem(`sq_group_${state.slug}`, state.groupName);
     const questionPool = questionPoolForMode();
     const questionCount = calcQuestionCount(questionPool.length, state.percent);
     if (!questionPool.length || !questionCount) {
@@ -914,7 +923,12 @@
     </section>`);
     document.getElementById("backBtn").onclick = () => {
       state.leaderboardVisible = false;
-      state.done ? renderResults() : renderSetup();
+      if (state.done) {
+        renderResults();
+        return;
+      }
+      resetGroupSelection();
+      renderSetup();
     };
     document.getElementById("backTopBtn").onclick = document.getElementById("backBtn").onclick;
     document.querySelectorAll("[data-expand-day]").forEach((button) => {
@@ -1439,7 +1453,10 @@
         </div>`;
       }).join("")}</div>
     </section>`);
-    document.getElementById("retryBtn").onclick = renderSetup;
+    document.getElementById("retryBtn").onclick = () => {
+      resetGroupSelection();
+      renderSetup();
+    };
     document.getElementById("resultLeaderboardBtn").onclick = () => showLeaderboard();
   }
 

@@ -35,6 +35,12 @@ All UI colors must come from `frontend/assets/design-system.css`.
 
 Dark mode uses the same semantic names with lightness inverted. Do not introduce a second accent hue.
 
+### Student comfort palette
+
+- Student assessment screens scope their tokens to a pastel brown-gray palette: pale warm-gray canvas, near-white panels, slightly darker taupe fields, and muted clay-brown for the single primary action and selected state.
+- Preserve the existing semantic green, red and amber states for correct, incorrect and warning feedback. Do not use brown alone to communicate an error or required state.
+- This palette is intentionally scoped to `.shell`; administration retains its own shared-token presentation.
+
 ## Component contracts
 
 ### Button
@@ -61,6 +67,7 @@ Dark mode uses the same semantic names with lightness inverted. Do not introduce
 - Navigation lives on the same canvas family as content.
 - Current location must expose `aria-current="page"` and a visible state that does not rely on color alone.
 - Mobile navigation must remain usable without horizontal page overflow.
+- Role-restricted navigation is omitted from the DOM for unauthorized roles, and its view renderer must independently reject direct state or handler access.
 
 ### Data and asynchronous states
 

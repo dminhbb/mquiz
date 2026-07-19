@@ -2587,3 +2587,72 @@ select {
     width: 100%;
   }
 }
+
+/* Student comfort palette: pastel brown-gray paper, clear taupe separation, focused clay actions. */
+body:has(.shell) {
+  background: var(--student-paper);
+  color: var(--student-ink);
+}
+
+.shell {
+  --exam-paper: var(--student-paper);
+  --exam-paper-raised: var(--student-paper-raised);
+  --exam-sheet: var(--student-sheet);
+  --exam-inset: var(--student-inset);
+  --exam-ink: var(--student-ink);
+  --exam-ink-secondary: var(--student-ink-secondary);
+  --exam-ink-tertiary: var(--student-ink-tertiary);
+  --exam-ink-disabled: var(--student-ink-disabled);
+  --pen-blue: var(--student-clay);
+  --pen-blue-strong: var(--student-clay-strong);
+  --pen-blue-wash: var(--student-clay-wash);
+  --pen-blue-quiet: var(--student-clay-quiet);
+  --mark-correct: var(--student-correct);
+  --mark-correct-wash: var(--student-correct-wash);
+  --mark-wrong: var(--student-wrong);
+  --mark-wrong-wash: var(--student-wrong-wash);
+  --mark-warning: var(--student-warning);
+  --mark-warning-wash: var(--student-warning-wash);
+  --exam-line: var(--student-line);
+  --exam-line-soft: var(--student-line-soft);
+  --exam-line-strong: var(--student-line-strong);
+  --exam-focus: var(--student-focus);
+  --exam-overlay: var(--student-overlay);
+  --exam-shadow-float: var(--student-shadow-float);
+  --exam-shadow-soft: var(--student-shadow-soft);
+  --paper: var(--student-paper);
+  --sheet: var(--student-sheet);
+  --ink: var(--student-ink);
+  --soft-ink: var(--student-ink-secondary);
+  --line: var(--student-line);
+  --field: var(--student-inset);
+  --brand: var(--student-clay);
+  --brand-ink: var(--student-sheet);
+  --correct: var(--student-correct);
+  --wrong: var(--student-wrong);
+  --warn: var(--student-warning);
+  --shadow: var(--student-shadow-soft);
+}
+
+.theme-fab {
+  position: fixed;
+  z-index: var(--z-sticky);
+  right: 20px;
+  bottom: 20px;
+  min-width: 72px;
+  border-color: var(--student-line-strong);
+  background: var(--student-sheet);
+  color: var(--student-ink);
+  box-shadow: var(--student-shadow-float);
+}
+
+.configured-choice-grid {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+@media (max-width: 700px) {
+  .theme-fab {
+    right: 12px;
+    bottom: 12px;
+  }
+}
