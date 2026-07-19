@@ -386,8 +386,8 @@ app.post("/api/export", requireAuth, async (req, res) => {
   }
 });
 
-app.use("/assets", express.static(path.join(distDir, "assets")));
 app.use("/assets", express.static(path.join(frontendDir, "assets")));
+app.use("/assets", express.static(path.join(distDir, "assets")));
 app.use("/data", express.static(path.join(distDir, "data")));
 app.use("/data", express.static(path.join(frontendDir, "data")));
 app.use("/cloud-admin", express.static(cloudAdminDir));
@@ -398,9 +398,14 @@ function sendQuizIndex(req, res) {
   res.sendFile(fs.existsSync(generatedIndex) ? generatedIndex : path.join(frontendDir, "index.html"));
 }
 
+function sendFrontendIndex(req, res) {
+  res.sendFile(path.join(frontendDir, "index.html"));
+}
+
 app.get("/preview/*", sendQuizIndex);
 app.use("/static-source", express.static(frontendDir));
-app.get("/:slug([a-z0-9-]+)", sendQuizIndex);
+app.get("/exam/:code(\\d{5})", sendFrontendIndex);
+app.get("/:slug([a-z0-9-]+)", sendFrontendIndex);
 
 app.listen(port, () => {
   console.log(`mquiz backend: http://localhost:${port}/admin`);

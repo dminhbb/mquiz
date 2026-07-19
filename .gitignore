@@ -7,6 +7,9 @@ backend/data/
 *.sqlite-shm
 *.sqlite-wal
 *.sql
+!supabase/delete_question_set_cascade.sql
+!supabase/real_exams_v2.sql
+!supabase/real_exam_revisions.sql
 
 # Generated deployment files
 backend/dist/

@@ -45,8 +45,15 @@ Trong Supabase SQL Editor:
 7. Chạy `supabase/add_space_status_rpc.sql` để frontend trả về 404 cho Space chưa Published.
 8. Chạy `supabase/add_real_exam_result_export.sql` để lưu mã đợt Thi thật và cho phép Admin xuất Excel 3 đợt gần nhất.
 9. Chạy `supabase/add_scoring_methods.sql` để thêm Cách tính điểm 1/2 cho từng Space và từng lượt thi.
+10. Chạy `supabase/real_exams_v2.sql` để tạo cơ chế nhiều Đợt thi thật, mã vĩnh viễn và Đề thi lưu bằng ID câu hỏi.
+11. Chạy `supabase/real_exam_revisions.sql` để cho phép thay đổi nguồn theo phiên bản mà vẫn giữ nguyên ID Đợt thi, đồng thời thêm điều khiển Start/Stop trong khung giờ thi.
+12. Chạy `supabase/delete_question_set_cascade.sql` để chuyển xóa câu hỏi/ngân hàng sang xóa mềm.
 
 Các script dùng `if exists`/`if not exists` ở những vị trí cần thiết và không xóa dữ liệu kết quả cũ.
+
+Ba migration cuối phải chạy đúng thứ tự. `real_exams_v2.sql` chuyển các đợt và kết quả Thi thật cũ sang mô hình mới; `real_exam_revisions.sql` tạo Phiên bản 1 cho dữ liệu hiện có và gắn kết quả cũ với phiên bản đó. Kết quả Thi thật không còn bị tự động xóa.
+
+Nếu đã chạy `real_exam_revisions.sql` trước khi có chức năng Start/Stop, có thể chạy lại chính script này. Script sẽ bổ sung cột trạng thái tạm dừng và cập nhật các RPC mà không xóa phiên bản hoặc kết quả hiện có.
 
 ## 4. Tạo superadmin đầu tiên
 
@@ -119,11 +126,14 @@ Kiểm tra:
 1. Đăng nhập email/mật khẩu.
 2. Tạo/sửa Space và Group.
 3. Upload CSV.
-4. Bật/tắt Thi thật.
-5. Làm một lượt Thi thử và Thi thật.
-6. Kiểm tra kết quả.
-7. Tạo backup JSON.
-8. Restore trên dữ liệu thử nghiệm.
+4. Tạo Đợt thi thật và mở link `/exam/12345` được cấp.
+5. Xác nhận link chưa trả nội dung câu hỏi trước giờ bắt đầu, rồi làm một lượt khi Đợt thi hoạt động.
+6. Thử xóa câu hỏi khi Đợt thi đang hoạt động để xác nhận thao tác bị khóa.
+7. Kết thúc Đợt thi, xóa mềm một ngân hàng và xác nhận kết quả cùng Đề thi lịch sử vẫn còn.
+8. Kiểm tra danh sách Đợt thi phân trang 15 dòng và xuất Excel kết quả.
+9. Làm một lượt Thi thử và kiểm tra kết quả.
+10. Tạo backup JSON.
+11. Restore trên dữ liệu thử nghiệm.
 
 ## 8. Tạo ZIP Netlify
 

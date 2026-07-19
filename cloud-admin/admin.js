@@ -5,6 +5,7 @@
   const quizBaseUrl = new URL("../", adminBaseUrl);
   const config = window.__SQ_SUPABASE__ || {};
   const client = window.supabase?.createClient(config.url, config.anonKey);
+  let dialogErrorTimer = null;
   const state = {
     session: null,
     profile: null,
@@ -25,9 +26,18 @@
     render();
   }
 
+  function loadingPanel(label) {
+    return `<section class="panel loading-state" role="status" aria-live="polite" aria-label="${esc(label)}">
+      <span class="skeleton loading-title" aria-hidden="true"></span>
+      <span class="skeleton" aria-hidden="true"></span>
+      <span class="skeleton loading-short" aria-hidden="true"></span>
+      <span class="sr-only">${esc(label)}</span>
+    </section>`;
+  }
+
   async function boot() {
     if (!client) {
-      app.innerHTML = '<main class="login-screen"><section class="login-panel"><h1>Chưa cấu hình Supabase</h1></section></main>';
+      app.innerHTML = '<main class="login-screen" id="main-content" tabindex="-1"><section class="login-panel"><h1>Chưa cấu hình Supabase</h1></section></main>';
       return;
     }
     const { data } = await client.auth.getSession();
@@ -63,20 +73,20 @@
     if (!state.session || !state.profile) return renderLogin();
     app.innerHTML = `<section class="admin-shell">
       <aside class="sidebar">
-        <div><div class="brand">mquiz</div><div>Cloud Admin</div></div>
-        <nav>
-          <button class="${state.view === "spaces" ? "active" : ""}" data-view="spaces">Quản lý Space</button>
-          ${state.profile.role === "superadmin" ? '<button class="' + (state.view === "users" ? "active" : "") + '" data-view="users">Quản lý Admin</button>' : ""}
-          ${state.profile.role === "superadmin" ? '<button class="' + (state.view === "backup" ? "active" : "") + '" data-view="backup">Backup & Restore</button>' : ""}
-          <button class="${state.view === "password" ? "active" : ""}" data-view="password">Đổi mật khẩu</button>
+        <div><div class="brand" aria-label="mquiz"><span>m</span>quiz</div><div class="admin-edition">Quản trị</div></div>
+        <nav aria-label="Điều hướng quản trị">
+          <button class="${state.view === "spaces" ? "active" : ""}" data-view="spaces" ${state.view === "spaces" ? 'aria-current="page"' : ""}>Quản lý Space</button>
+          ${state.profile.role === "superadmin" ? '<button class="' + (state.view === "users" ? "active" : "") + '" data-view="users" ' + (state.view === "users" ? 'aria-current="page"' : "") + '>Quản lý Admin</button>' : ""}
+          ${state.profile.role === "superadmin" ? '<button class="' + (state.view === "backup" ? "active" : "") + '" data-view="backup" ' + (state.view === "backup" ? 'aria-current="page"' : "") + '>Backup & Restore</button>' : ""}
+          <button class="${state.view === "password" ? "active" : ""}" data-view="password" ${state.view === "password" ? 'aria-current="page"' : ""}>Đổi mật khẩu</button>
         </nav>
         <div class="sidebar-user"><b>${esc(state.profile.fullname)}</b><br><span>${esc(state.profile.email)}</span><br><small>${esc(state.profile.role)}</small></div>
         <button id="logoutBtn">Đăng xuất</button>
       </aside>
-      <main class="workspace">
-        ${state.status ? `<div class="status ${state.error ? "error" : ""}">${esc(state.status)}</div>` : ""}
+      <main class="workspace" id="main-content" tabindex="-1">
+        ${state.status ? `<div class="status ${state.error ? "error" : ""}" role="${state.error ? "alert" : "status"}" aria-live="${state.error ? "assertive" : "polite"}">${esc(state.status)}</div>` : ""}
         <div id="view"></div>
-        <footer class="copyright">mquiz (C) 2026 | minhnd7</footer>
+        <footer class="copyright">mquiz © 2026 · minhnd7</footer>
       </main>
     </section>`;
     document.querySelectorAll("[data-view]").forEach((button) => {
@@ -94,7 +104,7 @@
   }
 
   function renderLogin() {
-    app.innerHTML = `<main class="login-screen">
+    app.innerHTML = `<main class="login-screen" id="main-content" tabindex="-1">
       <form class="login-panel" id="loginForm">
         <div><div class="brand">mquiz</div><p class="muted">Đăng nhập quản trị cloud</p></div>
         ${state.status ? `<div class="status ${state.error ? "error" : ""}">${esc(state.status)}</div>` : ""}
@@ -128,7 +138,7 @@
   }
 
   function renderRecoveryPassword() {
-    app.innerHTML = `<main class="login-screen"><form class="login-panel" id="recoveryForm">
+    app.innerHTML = `<main class="login-screen" id="main-content" tabindex="-1"><form class="login-panel" id="recoveryForm">
       <div><div class="brand">mquiz</div><p class="muted">Đặt mật khẩu mới</p></div>
       <label>Mật khẩu mới<input name="password" type="password" minlength="8" required></label>
       <button class="primary">Cập nhật mật khẩu</button>
@@ -146,10 +156,11 @@
 
   async function renderSpaces() {
     const view = document.getElementById("view");
-    view.innerHTML = '<div class="panel">Đang tải...</div>';
-    const [{ data: spaces, error }, { data: questions }] = await Promise.all([
+    view.innerHTML = loadingPanel("Đang tải danh sách Space");
+    const [{ data: spaces, error }, { data: questions }, { data: realExams }] = await Promise.all([
       client.from("spaces").select("*").order("updated_at", { ascending: false }),
-      client.from("questions").select("id,space_id,type")
+      client.from("questions").select("id,space_id,type").is("hidden_at", null),
+      client.from("real_exams").select("id,space_id,name,start_at,end_at,ended_at").is("hidden_at", null)
     ]);
     if (error) return setStatus(error.message, true);
     const counts = new Map();
@@ -159,11 +170,24 @@
       if (question.type === "multi") current.multi += 1;
       counts.set(question.space_id, current);
     });
-    state.spaces = (spaces || []).map((space) => ({ ...space, counts: counts.get(space.id) || { total: 0, multi: 0 } }));
+    const now = Date.now();
+    const activeExamBySpace = new Map();
+    (realExams || []).forEach((exam) => {
+      const start = new Date(exam.start_at).getTime();
+      const end = new Date(exam.end_at).getTime();
+      if (!exam.ended_at && start <= now && end >= now && !activeExamBySpace.has(exam.space_id)) {
+        activeExamBySpace.set(exam.space_id, exam);
+      }
+    });
+    state.spaces = (spaces || []).map((space) => ({
+      ...space,
+      counts: counts.get(space.id) || { total: 0, multi: 0 },
+      active_real_exam: activeExamBySpace.get(space.id) || null
+    }));
     const summary = {
       total: state.spaces.length,
       published: state.spaces.filter((space) => space.published).length,
-      real: state.spaces.filter((space) => space.real_exam_enabled).length,
+      real: state.spaces.filter((space) => space.active_real_exam).length,
       empty: state.spaces.filter((space) => Number(space.counts.total || 0) === 0).length
     };
     view.innerHTML = `<header class="topbar">
@@ -173,7 +197,7 @@
     <section class="space-summary-grid" aria-label="Tổng quan Space">
       <article class="metric-card"><span>Tổng Space</span><b>${summary.total}</b><small>Đang quản trị</small></article>
       <article class="metric-card"><span>Đã xuất bản</span><b>${summary.published}</b><small>${summary.total - summary.published} bản nháp</small></article>
-      <article class="metric-card"><span>Bật Thi thật</span><b>${summary.real}</b><small>Đợt thi đang cấu hình</small></article>
+      <article class="metric-card"><span>Thi thật đang diễn ra</span><b>${summary.real}</b><small>Space có đợt đang hoạt động</small></article>
       <article class="metric-card ${summary.empty ? "attention" : ""}"><span>Chưa có câu hỏi</span><b>${summary.empty}</b><small>Cần bổ sung ngân hàng</small></article>
     </section>
     <section class="panel table-wrap spaces-table"><table>
@@ -181,7 +205,7 @@
       <tbody>${state.spaces.map((space) => `<tr>
         <td><b>${esc(space.name)}</b><br><span class="muted">/${esc(space.slug)}</span></td>
         <td><span class="table-number">${space.counts.total}</span><br><span class="muted">${space.counts.multi} câu nhiều đáp án</span></td>
-        <td><span class="badge ${space.real_exam_enabled ? "on" : ""}">${space.real_exam_enabled ? "Đang bật Thi thật" : "Đang tắt"}</span>${space.real_exam_name ? `<br><span class="muted">${esc(space.real_exam_name)}</span>` : ""}</td>
+        <td><span class="badge ${space.active_real_exam ? "on" : ""}">${space.active_real_exam ? "Đang có Thi thật" : "Không có đợt đang thi"}</span>${space.active_real_exam ? `<br><span class="muted">${esc(space.active_real_exam.name)}</span>` : ""}</td>
         <td><span class="status-pill ${space.published ? "published" : "draft"}">${space.published ? "Đã xuất bản" : "Bản nháp"}</span></td>
         <td class="settings-cell"><div class="space-row-actions">
           <button class="row-primary-action" data-space-settings="${space.id}" title="Cấu hình Space" aria-label="Cấu hình Space"><i data-lucide="settings"></i></button>
@@ -204,12 +228,15 @@
   }
 
   function openDialog(content, className = "") {
+    clearDialogError();
     dialog.className = className;
     dialog.innerHTML = `<div class="dialog-body">${content}</div>`;
     dialog.showModal();
+    window.requestAnimationFrame(() => dialog.querySelector("input, select, textarea, button, [tabindex]:not([tabindex='-1'])")?.focus());
   }
 
   function closeDialog() {
+    clearDialogError();
     dialog.close();
     dialog.innerHTML = "";
     dialog.className = "";
@@ -268,7 +295,7 @@
         </div>
         <nav>${tabs.map(([key, label]) => `<button type="button" class="${key === activeTab ? "active" : ""}" data-settings-tab="${key}">${label}</button>`).join("")}</nav>
       </aside>
-      <main class="space-settings-main" id="spaceSettingsPanel"></main>
+      <div class="space-settings-main" id="spaceSettingsPanel"></div>
     </section>`, "space-settings-dialog");
     bind("[data-settings-tab]", (button) => renderSpaceSettingsPanel(spaceId, button.dataset.settingsTab));
     window.lucide?.createIcons();
@@ -276,6 +303,7 @@
   }
 
   async function renderSpaceSettingsPanel(spaceId, tab) {
+    clearDialogError();
     const space = state.spaces.find((item) => item.id === spaceId);
     const panel = document.getElementById("spaceSettingsPanel");
     if (!space || !panel) return;
@@ -314,7 +342,7 @@
   }
 
   async function renderGroupSettings(panel, spaceId, space) {
-    panel.innerHTML = '<div class="panel">Đang tải nhóm...</div>';
+    panel.innerHTML = loadingPanel("Đang tải danh sách nhóm");
     const { data, error } = await client.from("groups").select("*").eq("space_id", spaceId).order("name");
     if (error) return showDialogError(error.message);
     const groups = [...(data || [])].sort((a, b) => a.name.localeCompare(b.name, "vi", { sensitivity: "base" }));
@@ -355,8 +383,8 @@
 
   async function loadQuestionSets(spaceId) {
     const [{ data: sets, error: setError }, { data: questions, error: questionError }] = await Promise.all([
-      client.from("question_sets").select("*").eq("space_id", spaceId).order("name"),
-      client.from("questions").select("id,type,question_set_id").eq("space_id", spaceId)
+      client.from("question_sets").select("*").eq("space_id", spaceId).is("hidden_at", null).order("name"),
+      client.from("questions").select("id,type,question_set_id").eq("space_id", spaceId).is("hidden_at", null)
     ]);
     if (setError) throw setError;
     if (questionError) throw questionError;
@@ -371,215 +399,901 @@
     return (sets || []).map((set) => ({ ...set, counts: counts.get(set.id) || { total: 0, multi: 0 } }));
   }
 
-  function questionSetOptions(sets, selectedId) {
-    return sets.map((set) => `<option value="${set.id}" ${Number(selectedId) === Number(set.id) ? "selected" : ""}>${esc(set.name)} (${set.counts.total} câu)</option>`).join("");
+  function realExamQuestionSetIds(space) {
+    return new Set((Array.isArray(space.real_question_sets) ? space.real_question_sets : [])
+      .map((item) => Number(item.id ?? item.question_set_id))
+      .filter(Number.isFinite));
   }
 
-  async function renderQuestionSettings(panel, spaceId, space, selectedSetId = null) {
-    panel.innerHTML = '<div class="panel">Đang tải Bộ câu hỏi...</div>';
+  function isRealExamRunning(space, timestamp = Date.now()) {
+    if (space.active_real_exam) return true;
+    const start = new Date(space.real_start_at || "").getTime();
+    const end = new Date(space.real_end_at || "").getTime();
+    return Boolean(space.real_exam_enabled)
+      && Number.isFinite(start)
+      && Number.isFinite(end)
+      && timestamp >= start
+      && timestamp <= end;
+  }
+
+  function formatAdminDateTime(value) {
+    const date = new Date(value || "");
+    if (!Number.isFinite(date.getTime())) return "Chưa cấu hình";
+    return date.toLocaleString("vi-VN", {
+      hour: "2-digit",
+      minute: "2-digit",
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric"
+    });
+  }
+
+  function questionWizardProgress(currentStep) {
+    const labels = ["Chọn ngân hàng", "Chọn thao tác", "Thực hiện"];
+    return `<ol class="question-wizard-steps" aria-label="Tiến trình quản lý ngân hàng câu hỏi">
+      ${labels.map((label, index) => {
+        const step = index + 1;
+        return `<li class="${step === currentStep ? "current" : ""} ${step < currentStep ? "complete" : ""}" ${step === currentStep ? 'aria-current="step"' : ""}>
+          <span>${step < currentStep ? "✓" : step}</span><b>${label}</b>
+        </li>`;
+      }).join("")}
+    </ol>`;
+  }
+
+  function questionWizardNotice(flow) {
+    if (!flow.message) return "";
+    return `<div class="question-wizard-notice ${flow.messageTone === "error" ? "error" : ""}" role="${flow.messageTone === "error" ? "alert" : "status"}" aria-live="polite">${esc(flow.message)}</div>`;
+  }
+
+  async function closeQuestionWizard() {
+    closeDialog();
+    await renderSpaces();
+  }
+
+  async function renderQuestionSettings(panel, spaceId, space, inputFlow = {}) {
+    clearDialogError();
+    const flow = {
+      step: Number(inputFlow.step) || 1,
+      mode: inputFlow.mode || "",
+      selectedSetId: inputFlow.selectedSetId ? Number(inputFlow.selectedSetId) : null,
+      confirmation: inputFlow.confirmation || "",
+      message: inputFlow.message || "",
+      messageTone: inputFlow.messageTone || ""
+    };
+    panel.innerHTML = loadingPanel("Đang tải ngân hàng câu hỏi");
     let sets;
     try {
-      sets = await loadQuestionSets(spaceId);
+      const nowIso = new Date().toISOString();
+      const [
+        loadedSets,
+        { data: latestExamState, error: examStateError },
+        { data: activeRealExam, error: activeRealExamError }
+      ] = await Promise.all([
+        loadQuestionSets(spaceId),
+        client
+          .from("spaces")
+          .select("real_exam_enabled,real_exam_name,real_start_at,real_end_at,real_question_sets")
+          .eq("id", spaceId)
+          .single(),
+        client
+          .from("real_exams")
+          .select("id,name,start_at,end_at")
+          .eq("space_id", spaceId)
+          .is("hidden_at", null)
+          .is("ended_at", null)
+          .lte("start_at", nowIso)
+          .gte("end_at", nowIso)
+          .limit(1)
+          .maybeSingle()
+      ]);
+      if (examStateError) throw examStateError;
+      if (activeRealExamError) throw activeRealExamError;
+      sets = loadedSets;
+      Object.assign(space, latestExamState || {});
+      space.active_real_exam = activeRealExam || null;
+      if (activeRealExam) {
+        space.real_exam_name = activeRealExam.name;
+        space.real_start_at = activeRealExam.start_at;
+        space.real_end_at = activeRealExam.end_at;
+      }
     } catch (error) {
-      return showDialogError(error.message || "Không tải được Bộ câu hỏi.");
+      return showDialogError(error.message || "Không tải được ngân hàng câu hỏi.");
     }
-    const activeSet = sets.find((set) => Number(set.id) === Number(selectedSetId)) || sets[0] || null;
-    panel.innerHTML = `<section class="grid settings-pane">
-      <h2>Quản lý Ngân hàng câu hỏi</h2>
-      <section class="settings-section">
-        <div class="section-heading">
-          <div>
-            <h3>Quản lý danh mục Bộ câu hỏi</h3>
-            <p class="muted">${sets.length} bộ câu hỏi trong Space này.</p>
-          </div>
-          <form id="addQuestionSetForm" class="inline-create-form">
-            <input name="name" placeholder="Tên Bộ câu hỏi mới" required>
-            <button class="primary">Thêm</button>
-          </form>
-        </div>
-        <div class="question-set-list">${sets.map((set) => `<div class="question-set-item ${activeSet?.id === set.id ? "active" : ""}">
-          <button type="button" class="question-set-main" data-select-question-set="${set.id}">
-            <b>${esc(set.name)}</b>
-            <span>${set.counts.total} câu · ${set.counts.multi} câu nhiều đáp án</span>
-          </button>
-          <div class="group-card-actions">
-            <button type="button" class="link-button" data-rename-question-set="${set.id}">Sửa</button>
-            <button type="button" class="link-button danger" data-delete-question-set="${set.id}">Xóa</button>
-          </div>
-        </div>`).join("") || '<p class="muted">Chưa có Bộ câu hỏi.</p>'}</div>
-      </section>
-      <section class="settings-section">
-        <div class="section-heading">
-          <div>
-            <h3>Quản lý Ngân hàng câu hỏi</h3>
-            <p class="muted">${Number(space.counts?.total || 0)} câu hỏi · ${Number(space.counts?.multi || 0)} câu nhiều đáp án</p>
-          </div>
-          <button type="button" id="exportQuestionsBtn" ${activeSet ? "" : "disabled"}>Tải về ngân hàng câu hỏi</button>
-        </div>
-        <label>Bộ câu hỏi<select id="questionSetSelect" ${activeSet ? "" : "disabled"}>${questionSetOptions(sets, activeSet?.id)}</select></label>
-      </section>
-      <section class="settings-section">
-        <h3>Upload câu hỏi</h3>
-        <input id="csvFile" type="file" accept=".csv,text/csv" ${activeSet ? "" : "disabled"}>
-        <div id="csvPreview" class="muted"></div>
-        <div class="actions">
-          <button type="button" id="previewCsvBtn" ${activeSet ? "" : "disabled"}>Preview</button>
-        </div>
-      </section>
-      <section class="settings-section">
-        <div class="section-heading">
-          <div>
-            <h3>Xóa ngân hàng câu hỏi</h3>
-            <p class="muted">Xóa toàn bộ câu hỏi hiện có trong Space này.</p>
-          </div>
-          <button type="button" class="danger" id="deleteQuestionsBtn" ${activeSet ? "" : "disabled"}>Xóa toàn bộ câu hỏi</button>
-        </div>
-      </section>
-      <div class="settings-save"><button type="button" class="primary" id="importCsvBtn" disabled>Lưu câu hỏi</button><button type="button" data-close>Đóng</button></div>
-    </section>`;
-    let parsedQuestions = [];
-    document.getElementById("addQuestionSetForm").onsubmit = async (event) => {
-      event.preventDefault();
-      const name = new FormData(event.target).get("name").trim();
-      const { data, error } = await client.from("question_sets").insert({ space_id: spaceId, name }).select("id").single();
-      if (error) return showDialogError(error.message);
-      await renderQuestionSettings(panel, spaceId, space, data.id);
+    const realExamRunning = isRealExamRunning(space);
+    if (realExamRunning) flow.confirmation = "";
+    const selectedSet = sets.find((set) => Number(set.id) === flow.selectedSetId) || null;
+    if (!selectedSet && flow.step > 1) {
+      flow.step = 1;
+      flow.mode = "";
+      flow.selectedSetId = null;
+      flow.confirmation = "";
+    }
+    const activeSet = sets.find((set) => Number(set.id) === flow.selectedSetId) || null;
+    const realSetIds = realExamQuestionSetIds(space);
+    const setIsUsedForRealExam = activeSet ? realSetIds.has(Number(activeSet.id)) : false;
+    const on = (selector, handler) => {
+      panel.querySelectorAll(selector).forEach((element) => {
+        element.onclick = () => handler(element);
+      });
     };
-    bind("[data-select-question-set]", (button) => renderQuestionSettings(panel, spaceId, space, Number(button.dataset.selectQuestionSet)));
-    bind("[data-rename-question-set]", async (button) => {
-      const set = sets.find((item) => item.id === Number(button.dataset.renameQuestionSet));
-      const name = prompt("Tên Bộ câu hỏi mới", set?.name || "")?.trim();
-      if (!name || !set) return;
-      const { error } = await client.from("question_sets").update({ name }).eq("id", set.id);
-      if (error) return showDialogError(error.message);
-      await renderQuestionSettings(panel, spaceId, space, set.id);
-    });
-    bind("[data-delete-question-set]", async (button) => {
-      if (sets.length <= 1) return showDialogError("Space phải có ít nhất 1 Bộ câu hỏi.");
-      const set = sets.find((item) => item.id === Number(button.dataset.deleteQuestionSet));
-      if (!set || !confirm("Xóa Bộ câu hỏi này? Câu hỏi thuộc bộ này sẽ không còn phân loại.")) return;
-      const { error } = await client.from("question_sets").delete().eq("id", set.id);
-      if (error) return showDialogError(error.message);
-      await renderQuestionSettings(panel, spaceId, space);
-    });
-    const select = document.getElementById("questionSetSelect");
-    if (select) select.onchange = () => renderQuestionSettings(panel, spaceId, space, Number(select.value));
-    document.getElementById("previewCsvBtn").onclick = () => {
-      const file = document.getElementById("csvFile").files[0];
-      if (!file) return showDialogError("Chọn file CSV trước.");
+    const renderNext = (changes) => renderQuestionSettings(panel, spaceId, space, { ...flow, ...changes });
+
+    if (flow.step === 1) {
+      panel.innerHTML = `<section class="question-wizard settings-pane" aria-labelledby="questionWizardTitle">
+        <header class="question-wizard-header">
+          <div><span class="settings-eyebrow">Ngân hàng câu hỏi</span><h2 id="questionWizardTitle">Chọn ngân hàng cần quản lý</h2></div>
+          <p class="muted">Chọn một ngân hàng có sẵn hoặc tạo ngân hàng mới để tiếp tục.</p>
+        </header>
+        ${questionWizardProgress(1)}
+        ${questionWizardNotice(flow)}
+        <section class="question-wizard-section">
+          <div class="question-wizard-section-heading">
+            <div><h3>Ngân hàng trong Space</h3><p class="muted">${sets.length} ngân hàng câu hỏi</p></div>
+          </div>
+          <div class="question-bank-list" aria-label="Danh sách ngân hàng câu hỏi">
+            ${sets.map((set) => {
+              return `<button type="button" class="question-bank-row" data-select-question-set="${set.id}">
+                <span class="question-bank-copy">
+                  <b>${esc(set.name)}</b>
+                  <span>${set.counts.total} câu hỏi · ${set.counts.multi} câu nhiều đáp án</span>
+                </span>
+                <span class="question-bank-trailing">
+                  ${realSetIds.has(Number(set.id)) ? '<span class="question-bank-usage">Đang dùng cho Thi thật</span>' : ""}
+                  <span class="question-bank-arrow" aria-hidden="true">→</span>
+                </span>
+              </button>`;
+            }).join("") || '<div class="question-bank-empty"><b>Chưa có ngân hàng câu hỏi</b><span>Tạo ngân hàng đầu tiên để bắt đầu.</span></div>'}
+          </div>
+        </section>
+        <form id="addQuestionSetForm" class="question-bank-create">
+          <label for="newQuestionSetName">Tạo ngân hàng mới</label>
+          <div><input id="newQuestionSetName" name="name" placeholder="Ví dụ: Kiến thức cơ bản" required><button class="primary">Tạo mới</button></div>
+        </form>
+        <footer class="question-wizard-footer">
+          <button type="button" data-close>Đóng</button>
+        </footer>
+      </section>`;
+      panel.querySelector("#addQuestionSetForm").onsubmit = async (event) => {
+        event.preventDefault();
+        const button = event.target.querySelector("button");
+        const name = String(new FormData(event.target).get("name") || "").trim();
+        if (!name) return;
+        const restoreButton = setButtonBusy(button, "Đang tạo...");
+        try {
+          const { data, error } = await client.from("question_sets").insert({ space_id: spaceId, name }).select("id").single();
+          if (error) throw error;
+          await renderNext({
+            selectedSetId: data.id,
+            step: 2,
+            message: `Đã tạo ngân hàng “${name}”.`,
+            messageTone: ""
+          });
+        } catch (error) {
+          showDialogError(error.message || "Không thể tạo ngân hàng câu hỏi.");
+        } finally {
+          restoreButton();
+        }
+      };
+      on("[data-select-question-set]", (button) => renderNext({
+        selectedSetId: Number(button.dataset.selectQuestionSet),
+        step: 2,
+        message: "",
+        messageTone: ""
+      }));
+      panel.querySelector("[data-close]").onclick = closeQuestionWizard;
+      return;
+    }
+
+    if (flow.step === 2) {
+      const deleteDisabled = sets.length <= 1;
+      let confirmation = "";
+      if (flow.confirmation === "clear") {
+        confirmation = `<section class="question-inline-confirmation" aria-labelledby="clearQuestionsTitle">
+          <span class="danger-label">Xác nhận xóa dữ liệu</span>
+          <h3 id="clearQuestionsTitle">Xóa ${activeSet.counts.total} câu hỏi trong “${esc(activeSet.name)}”?</h3>
+          <p>Ngân hàng vẫn được giữ lại. Câu hỏi sẽ bị ẩn khỏi quản trị thông thường nhưng vẫn được lưu để bảo toàn các Đề thi đã tạo.</p>
+          <div class="actions"><button type="button" data-cancel-confirmation>Hủy</button><button type="button" class="danger" id="confirmClearQuestions">Xóa toàn bộ câu hỏi</button></div>
+        </section>`;
+      }
+      if (flow.confirmation === "delete-first") {
+        confirmation = `<section class="question-inline-confirmation" aria-labelledby="deleteBankFirstTitle">
+          <span class="danger-label">Xác nhận 1/2</span>
+          <h3 id="deleteBankFirstTitle">Xóa ngân hàng “${esc(activeSet.name)}”?</h3>
+          <p>Ngân hàng và ${activeSet.counts.total} câu hỏi bên trong sẽ bị ẩn khỏi quản trị thông thường. Dữ liệu vẫn được lưu để bảo toàn các Đề thi đã tạo.</p>
+          <div class="actions"><button type="button" data-cancel-confirmation>Hủy</button><button type="button" class="danger" id="continueDeleteBank">Tôi hiểu, tiếp tục</button></div>
+        </section>`;
+      }
+      if (flow.confirmation === "delete-final") {
+        confirmation = `<section class="question-inline-confirmation" aria-labelledby="deleteBankFinalTitle">
+          <span class="danger-label">Xác nhận 2/2</span>
+          <h3 id="deleteBankFinalTitle">Nhập chính xác tên ngân hàng để xác nhận</h3>
+          <p>Nhập <b>${esc(activeSet.name)}</b> vào ô bên dưới.</p>
+          <label for="confirmQuestionSetName">Tên ngân hàng<input id="confirmQuestionSetName" autocomplete="off"></label>
+          <div class="actions"><button type="button" data-cancel-confirmation>Hủy</button><button type="button" class="danger" id="confirmDeleteBank" disabled>Xóa ngân hàng và câu hỏi</button></div>
+        </section>`;
+      }
+      panel.innerHTML = `<section class="question-wizard settings-pane" aria-labelledby="questionWizardTitle">
+        <header class="question-wizard-header">
+          <div><span class="settings-eyebrow">Ngân hàng đã chọn</span><h2 id="questionWizardTitle">${esc(activeSet.name)}</h2></div>
+          <div class="question-bank-summary"><b>${activeSet.counts.total}</b><span>câu hỏi</span><b>${activeSet.counts.multi}</b><span>nhiều đáp án</span></div>
+        </header>
+        ${questionWizardProgress(2)}
+        ${questionWizardNotice(flow)}
+        ${realExamRunning ? `<section class="question-real-exam-lock" role="status" aria-labelledby="realExamDeleteLockTitle">
+          <div>
+            <span class="warning-label">Đang khóa thao tác xóa</span>
+            <h3 id="realExamDeleteLockTitle">${esc(space.real_exam_name || "Đợt thi thật")} đang diễn ra</h3>
+            <p>Từ ${esc(formatAdminDateTime(space.real_start_at))} đến ${esc(formatAdminDateTime(space.real_end_at))}. Không thể xóa câu hỏi hoặc ngân hàng trong Space này cho đến khi đợt thi kết thúc.</p>
+          </div>
+          <button type="button" id="openRealExamSettings">Mở cấu hình Đợt thi thật</button>
+        </section>` : ""}
+        ${confirmation || `<section class="question-action-group" aria-labelledby="manageQuestionBankTitle">
+          <div><h3 id="manageQuestionBankTitle">Quản lý ngân hàng</h3><p class="muted">Chọn một thao tác để tiếp tục.</p></div>
+          <div class="question-action-list">
+            <button type="button" class="question-action-row" id="editQuestionSet">
+              <span><b>Sửa thông tin</b><small>Đổi tên và kiểm tra thông tin ngân hàng</small></span><span aria-hidden="true">→</span>
+            </button>
+            <button type="button" class="question-action-row" id="uploadQuestionSet">
+              <span><b>Upload câu hỏi</b><small>Thêm câu hỏi từ tệp CSV vào ngân hàng này</small></span><span aria-hidden="true">→</span>
+            </button>
+            <button type="button" class="question-action-row" id="exportQuestionsBtn" ${activeSet.counts.total ? "" : "disabled"}>
+              <span><b>Tải về ngân hàng câu hỏi</b><small>${activeSet.counts.total ? "Xuất toàn bộ câu hỏi của ngân hàng thành CSV" : "Ngân hàng chưa có câu hỏi để tải"}</small></span><span aria-hidden="true">↓</span>
+            </button>
+          </div>
+        </section>
+        <section class="question-danger-zone" aria-labelledby="questionDangerTitle">
+          <div><span class="danger-label">Khu vực nguy hiểm</span><h3 id="questionDangerTitle">Xóa dữ liệu</h3></div>
+          <div class="question-action-list">
+            <button type="button" class="question-action-row danger-row" id="clearQuestions" ${activeSet.counts.total && !realExamRunning ? "" : "disabled"}>
+              <span><b>Xóa toàn bộ câu hỏi trong ngân hàng</b><small>${realExamRunning ? "Bị khóa trong thời gian Đợt thi thật diễn ra" : `Ẩn câu hỏi, giữ lại ngân hàng “${esc(activeSet.name)}”`}</small></span><span aria-hidden="true">→</span>
+            </button>
+            <button type="button" class="question-action-row danger-row" id="deleteQuestionSet" ${deleteDisabled || realExamRunning ? "disabled" : ""}>
+              <span><b>Xóa ngân hàng câu hỏi</b><small>${realExamRunning ? "Bị khóa trong thời gian Đợt thi thật diễn ra" : deleteDisabled ? "Space phải có ít nhất một ngân hàng" : `Ẩn ngân hàng và ${activeSet.counts.total} câu hỏi bên trong`}</small></span><span aria-hidden="true">→</span>
+            </button>
+          </div>
+        </section>`}
+        <footer class="question-wizard-footer">
+          <button type="button" id="backToQuestionSets">Quay lại</button>
+          <button type="button" data-close>Đóng</button>
+        </footer>
+      </section>`;
+      panel.querySelector("#backToQuestionSets").onclick = () => renderNext({ step: 1, confirmation: "", message: "" });
+      panel.querySelector("[data-close]").onclick = closeQuestionWizard;
+      const openRealExamSettings = panel.querySelector("#openRealExamSettings");
+      if (openRealExamSettings) {
+        openRealExamSettings.onclick = () => renderSpaceSettingsPanel(spaceId, "real");
+      }
+      on("[data-cancel-confirmation]", () => renderNext({ confirmation: "" }));
+      if (confirmation) {
+        if (flow.confirmation === "clear") {
+          panel.querySelector("#confirmClearQuestions").onclick = async (event) => {
+            const deleted = await deleteAllQuestions(spaceId, activeSet.id, event.currentTarget, { confirmed: true, preserveDialog: true });
+            if (deleted) await renderNext({ confirmation: "", message: `Đã xóa ${activeSet.counts.total} câu hỏi. Ngân hàng vẫn được giữ lại.` });
+          };
+        }
+        if (flow.confirmation === "delete-first") {
+          panel.querySelector("#continueDeleteBank").onclick = () => renderNext({ confirmation: "delete-final" });
+        }
+        if (flow.confirmation === "delete-final") {
+          const input = panel.querySelector("#confirmQuestionSetName");
+          const button = panel.querySelector("#confirmDeleteBank");
+          input.oninput = () => {
+            button.disabled = input.value !== activeSet.name;
+          };
+          button.onclick = async () => {
+            const restoreButton = setButtonBusy(button, "Đang xóa...");
+            try {
+              const { data, error } = await client.rpc("delete_question_set_cascade", {
+                target_question_set_id: activeSet.id
+              });
+              if (error) throw error;
+              const deletedCount = Number(data?.deleted_questions ?? activeSet.counts.total);
+              await renderQuestionSettings(panel, spaceId, space, {
+                step: 1,
+                message: `Đã xóa ngân hàng “${activeSet.name}” và ${deletedCount} câu hỏi.`
+              });
+            } catch (error) {
+              showDialogError(error.message || "Không thể xóa ngân hàng câu hỏi.");
+            } finally {
+              restoreButton();
+            }
+          };
+        }
+        return;
+      }
+      panel.querySelector("#editQuestionSet").onclick = () => renderNext({ step: 3, mode: "edit", message: "" });
+      panel.querySelector("#uploadQuestionSet").onclick = () => renderNext({ step: 3, mode: "upload", message: "" });
+      panel.querySelector("#exportQuestionsBtn").onclick = async () => {
+        const count = await exportQuestions(spaceId, space.slug, activeSet.id, { preserveDialog: true });
+        if (count) await renderNext({ message: `Đã tải ${count} câu hỏi từ “${activeSet.name}”.` });
+      };
+      panel.querySelector("#clearQuestions").onclick = () => renderNext({ confirmation: "clear", message: "" });
+      panel.querySelector("#deleteQuestionSet").onclick = () => renderNext({ confirmation: "delete-first", message: "" });
+      return;
+    }
+
+    const isEdit = flow.mode === "edit";
+    panel.innerHTML = `<section class="question-wizard settings-pane" aria-labelledby="questionWizardTitle">
+      <header class="question-wizard-header">
+        <div><span class="settings-eyebrow">${esc(activeSet.name)}</span><h2 id="questionWizardTitle">${isEdit ? "Sửa thông tin ngân hàng" : "Upload câu hỏi"}</h2></div>
+        <p class="muted">${isEdit ? "Cập nhật tên hiển thị của ngân hàng câu hỏi." : "Tệp hợp lệ sẽ được thêm vào ngân hàng hiện tại, không thay thế câu hỏi cũ."}</p>
+      </header>
+      ${questionWizardProgress(3)}
+      ${isEdit ? `<form id="editQuestionSetForm" class="question-wizard-form">
+        <label for="questionSetName">Tên ngân hàng câu hỏi<input id="questionSetName" name="name" value="${esc(activeSet.name)}" required></label>
+        <dl class="question-bank-details">
+          <div><dt>Tổng câu hỏi</dt><dd>${activeSet.counts.total}</dd></div>
+          <div><dt>Câu nhiều đáp án</dt><dd>${activeSet.counts.multi}</dd></div>
+          <div><dt>Dùng cho Thi thật</dt><dd>${setIsUsedForRealExam ? "Có" : "Không"}</dd></div>
+        </dl>
+        <footer class="question-wizard-footer">
+          <button type="button" data-back-actions>Quay lại</button>
+          <button class="primary">Lưu thay đổi</button>
+        </footer>
+      </form>` : `<section class="question-upload-form">
+        <label class="question-upload-dropzone" for="csvFile">
+          <b>Chọn tệp CSV</b>
+          <span>Tệp cần có các cột nội dung, đáp án A–E và đáp án đúng.</span>
+          <input id="csvFile" type="file" accept=".csv,text/csv">
+        </label>
+        <p class="question-upload-capacity">Không giới hạn 20 câu mỗi lần. Ứng dụng sẽ nhập toàn bộ dòng hợp lệ trong tệp.</p>
+        <div id="csvPreview" class="question-upload-preview muted" role="status" aria-live="polite">Chưa chọn tệp.</div>
+        <footer class="question-wizard-footer">
+          <button type="button" data-back-actions>Quay lại</button>
+          <button type="button" class="primary" id="importCsvBtn" disabled>Thêm câu hỏi</button>
+        </footer>
+      </section>`}
+    </section>`;
+    panel.querySelector("[data-back-actions]").onclick = () => renderNext({ step: 2, mode: "", message: "" });
+    if (isEdit) {
+      panel.querySelector("#editQuestionSetForm").onsubmit = async (event) => {
+        event.preventDefault();
+        const button = event.submitter;
+        const name = String(new FormData(event.target).get("name") || "").trim();
+        const restoreButton = setButtonBusy(button, "Đang lưu...");
+        try {
+          const { error } = await client.from("question_sets").update({ name }).eq("id", activeSet.id).eq("space_id", spaceId);
+          if (error) throw error;
+          await renderNext({ step: 2, mode: "", message: `Đã đổi tên ngân hàng thành “${name}”.` });
+        } catch (error) {
+          showDialogError(error.message || "Không thể cập nhật ngân hàng câu hỏi.");
+        } finally {
+          restoreButton();
+        }
+      };
+      return;
+    }
+    let parsedQuestions = [];
+    const fileInput = panel.querySelector("#csvFile");
+    const preview = panel.querySelector("#csvPreview");
+    const importButton = panel.querySelector("#importCsvBtn");
+    fileInput.onchange = () => {
+      const file = fileInput.files[0];
+      parsedQuestions = [];
+      importButton.disabled = true;
+      importButton.textContent = "Thêm câu hỏi";
+      if (!file) {
+        preview.className = "question-upload-preview muted";
+        preview.textContent = "Chưa chọn tệp.";
+        return;
+      }
+      preview.className = "question-upload-preview muted";
+      preview.textContent = `Đang đọc ${file.name}...`;
       Papa.parse(file, {
         complete: (result) => {
           try {
             parsedQuestions = parseQuestions(result.data);
-            document.getElementById("csvPreview").textContent = `Hợp lệ: ${parsedQuestions.length} câu hỏi.`;
-            document.getElementById("importCsvBtn").disabled = false;
+            const multiCount = parsedQuestions.filter((question) => question.type === "multi").length;
+            preview.className = "question-upload-preview valid";
+            preview.innerHTML = `<b>${esc(file.name)}</b><span>${parsedQuestions.length} câu hợp lệ · ${multiCount} câu nhiều đáp án</span>`;
+            importButton.disabled = false;
+            importButton.textContent = `Thêm ${parsedQuestions.length} câu hỏi`;
           } catch (error) {
             parsedQuestions = [];
-            showDialogError(error.message);
+            preview.className = "question-upload-preview error";
+            preview.textContent = error.message;
           }
+        },
+        error: () => {
+          parsedQuestions = [];
+          importButton.disabled = true;
+          importButton.textContent = "Thêm câu hỏi";
+          preview.className = "question-upload-preview error";
+          preview.textContent = "Không thể đọc tệp CSV.";
         }
       });
     };
-    document.getElementById("importCsvBtn").onclick = (event) => importQuestions(spaceId, parsedQuestions, activeSet?.id, event.currentTarget);
-    document.getElementById("exportQuestionsBtn").onclick = () => exportQuestions(spaceId, space.slug, activeSet?.id);
-    document.getElementById("deleteQuestionsBtn").onclick = (event) => deleteAllQuestions(spaceId, activeSet?.id, event.currentTarget);
-    bindPanelCloseButtons(panel);
+    importButton.onclick = async () => {
+      const inserted = await importQuestions(spaceId, parsedQuestions, activeSet.id, importButton, { preserveDialog: true });
+      if (inserted) await renderNext({ step: 2, mode: "", message: `Đã thêm ${inserted} câu hỏi vào “${activeSet.name}”.` });
+    };
   }
 
-  async function renderRealExamSettings(panel, id, space) {
-    panel.innerHTML = '<div class="panel">Đang tải cấu hình Đợt thi thật...</div>';
+  function realExamStatusLabel(status) {
+    return {
+      scheduled: "Sắp diễn ra",
+      active: "Đang hoạt động",
+      paused: "Đã tạm dừng",
+      ended: "Đã kết thúc",
+      hidden: "Đã ẩn"
+    }[status] || "Không xác định";
+  }
+
+  function realExamDisplayName(exam) {
+    return `${exam.name || "Đợt thi thật"} · #${String(exam.code || "").padStart(5, "0")}`;
+  }
+
+  function realExamShareUrl(code) {
+    return new URL(`exam/${String(code).padStart(5, "0")}`, quizBaseUrl).href;
+  }
+
+  async function copyShareLink(input, status) {
+    input.focus();
+    input.select();
+    input.setSelectionRange(0, input.value.length);
+    let copied = false;
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(input.value);
+        copied = true;
+      }
+    } catch {
+      copied = false;
+    }
+    if (!copied) {
+      try {
+        copied = document.execCommand("copy");
+      } catch {
+        copied = false;
+      }
+    }
+    status.textContent = copied
+      ? "Đã sao chép link Đợt thi."
+      : "Link đã được chọn. Nhấn Ctrl+C để sao chép.";
+    status.classList.toggle("error", !copied);
+  }
+
+  async function renderRealExamSettings(panel, spaceId, space, inputFlow = {}) {
+    clearDialogError();
+    const flow = {
+      view: inputFlow.view || "list",
+      page: Math.max(1, Number(inputFlow.page) || 1),
+      search: inputFlow.search || "",
+      status: inputFlow.status || "",
+      examId: inputFlow.examId ? Number(inputFlow.examId) : null,
+      message: inputFlow.message || "",
+      clone: inputFlow.clone || null,
+      hideStep: Math.max(0, Number(inputFlow.hideStep) || 0),
+      revisionId: inputFlow.revisionId ? Number(inputFlow.revisionId) : null
+    };
+    const renderNext = (changes) => renderRealExamSettings(panel, spaceId, space, { ...flow, ...changes });
+    const notice = flow.message
+      ? `<div class="question-wizard-notice" role="status" aria-live="polite">${esc(flow.message)}</div>`
+      : "";
+    panel.innerHTML = loadingPanel("Đang tải danh sách Đợt thi thật");
+
+    if (flow.view === "list") {
+      const { data, error } = await client.rpc("list_real_exams", {
+        target_space_id: spaceId,
+        requested_page: flow.page,
+        requested_page_size: 15,
+        search_text: flow.search || null,
+        status_filter: flow.status || null
+      });
+      if (error) return showDialogError(error.message);
+      const exams = data || [];
+      const total = Number(exams[0]?.total_count || 0);
+      const pages = Math.max(1, Math.ceil(total / 15));
+      panel.innerHTML = `<section class="real-exam-wizard settings-pane" aria-labelledby="realExamListTitle">
+        <header class="real-exam-list-header">
+          <div><span class="settings-eyebrow">Thi thật</span><h2 id="realExamListTitle">Danh sách Đợt thi thật</h2><p class="muted">${total} đợt trong Space này · 15 đợt mỗi trang</p></div>
+          <button type="button" class="primary" id="createRealExamBtn">Tạo Đợt thi thật</button>
+        </header>
+        ${notice}
+        <form id="realExamFilterForm" class="real-exam-filters">
+          <label>Tìm theo tên hoặc ID<input name="search" value="${esc(flow.search)}" placeholder="Ví dụ: cuối kỳ hoặc #12345"></label>
+          <label>Trạng thái<select name="status">
+            <option value="">Tất cả</option>
+            <option value="scheduled" ${flow.status === "scheduled" ? "selected" : ""}>Sắp diễn ra</option>
+            <option value="active" ${flow.status === "active" ? "selected" : ""}>Đang hoạt động</option>
+            <option value="paused" ${flow.status === "paused" ? "selected" : ""}>Đã tạm dừng</option>
+            <option value="ended" ${flow.status === "ended" ? "selected" : ""}>Đã kết thúc</option>
+          </select></label>
+          <button type="submit">Lọc</button>
+        </form>
+        <div class="real-exam-list">
+          ${exams.map((exam) => `<button type="button" class="real-exam-list-row" data-real-exam-id="${exam.id}">
+            <span class="real-exam-row-main"><b>${esc(realExamDisplayName(exam))}</b><span>${esc(formatExportDateTime(exam.start_at))} – ${esc(formatExportDateTime(exam.end_at))}</span></span>
+            <span class="real-exam-status ${esc(exam.status)}">${esc(realExamStatusLabel(exam.status))}</span>
+            <span class="real-exam-row-stat"><b>${Number(exam.question_count || 0)}</b><small>câu hỏi</small></span>
+            <span class="real-exam-row-stat"><b>${Number(exam.result_count || 0)}</b><small>kết quả</small></span>
+            <span class="question-bank-arrow" aria-hidden="true">→</span>
+          </button>`).join("") || `<div class="question-bank-empty"><b>Chưa có Đợt thi thật</b><span>${flow.search || flow.status ? "Thử thay đổi bộ lọc." : "Tạo đợt đầu tiên để có link Thi thật riêng."}</span></div>`}
+        </div>
+        <nav class="real-exam-pagination" aria-label="Phân trang Đợt thi thật">
+          <button type="button" id="previousRealExamPage" ${flow.page <= 1 ? "disabled" : ""}>← Trang trước</button>
+          <span>Trang <b>${Math.min(flow.page, pages)}</b> / ${pages}</span>
+          <button type="button" id="nextRealExamPage" ${flow.page >= pages ? "disabled" : ""}>Trang sau →</button>
+        </nav>
+        <footer class="question-wizard-footer"><button type="button" data-close>Đóng</button></footer>
+      </section>`;
+      panel.querySelector("#createRealExamBtn").onclick = () => renderNext({ view: "form", examId: null, clone: null, message: "" });
+      panel.querySelector("#realExamFilterForm").onsubmit = (event) => {
+        event.preventDefault();
+        const form = new FormData(event.target);
+        renderNext({ page: 1, search: String(form.get("search") || "").trim(), status: String(form.get("status") || "") });
+      };
+      panel.querySelector("#previousRealExamPage").onclick = () => renderNext({ page: flow.page - 1 });
+      panel.querySelector("#nextRealExamPage").onclick = () => renderNext({ page: flow.page + 1 });
+      panel.querySelectorAll("[data-real-exam-id]").forEach((button) => {
+        button.onclick = () => renderNext({ view: "detail", examId: Number(button.dataset.realExamId), message: "", hideStep: 0 });
+      });
+      bindPanelCloseButtons(panel);
+      return;
+    }
+
+    let exam = null;
+    if (flow.examId) {
+      const { data, error } = await client.rpc("get_real_exam_admin", { target_real_exam_id: flow.examId });
+      if (error) return showDialogError(error.message);
+      exam = data;
+    }
+
+    if (flow.view === "share" && exam) {
+      const shareUrl = realExamShareUrl(exam.code);
+      panel.innerHTML = `<section class="real-exam-wizard settings-pane real-exam-share-view" aria-labelledby="realExamShareTitle">
+        <header class="question-wizard-header">
+          <div><span class="settings-eyebrow">Chia sẻ Đợt thi</span><h2 id="realExamShareTitle">${esc(realExamDisplayName(exam))}</h2></div>
+          <p class="muted">Quét mã QR hoặc sao chép đường dẫn để gửi cho học viên.</p>
+        </header>
+        <section class="real-exam-share-sheet">
+          <div class="real-exam-qr-frame">
+            <div id="realExamQrCode" aria-label="Mã QR dẫn tới ${esc(shareUrl)}"></div>
+            <span>Quét để mở Đợt thi</span>
+          </div>
+          <div class="real-exam-share-copy">
+            <label for="realExamShareLink">Link Thi thật</label>
+            <input id="realExamShareLink" value="${esc(shareUrl)}" readonly>
+            <p id="realExamCopyStatus" class="muted" role="status" aria-live="polite">Link dùng chung cho mọi phiên bản của ID #${String(exam.code).padStart(5, "0")}.</p>
+            <div class="actions">
+              <button type="button" class="primary" id="copyRealExamShareLink">Sao chép link</button>
+              <a class="button-link" href="${esc(shareUrl)}" target="_blank" rel="noopener noreferrer">Mở link</a>
+            </div>
+          </div>
+        </section>
+        <footer class="question-wizard-footer"><button type="button" id="backFromRealExamShare">Quay lại</button><button type="button" data-close>Đóng</button></footer>
+      </section>`;
+      const qrTarget = panel.querySelector("#realExamQrCode");
+      if (window.QRCode) {
+        new QRCode(qrTarget, {
+          text: shareUrl,
+          width: 220,
+          height: 220,
+          correctLevel: QRCode.CorrectLevel.H
+        });
+      } else {
+        qrTarget.innerHTML = '<div class="question-bank-empty"><b>Không tạo được mã QR</b><span>Vẫn có thể sao chép hoặc mở đường dẫn bên cạnh.</span></div>';
+      }
+      const linkInput = panel.querySelector("#realExamShareLink");
+      const copyStatus = panel.querySelector("#realExamCopyStatus");
+      panel.querySelector("#copyRealExamShareLink").onclick = () => copyShareLink(linkInput, copyStatus);
+      linkInput.onclick = () => linkInput.select();
+      panel.querySelector("#backFromRealExamShare").onclick = () => renderNext({ view: "detail" });
+      bindPanelCloseButtons(panel);
+      return;
+    }
+
+    if (flow.view === "detail" && exam) {
+      const shareUrl = realExamShareUrl(exam.code);
+      const isRunning = Boolean(exam.manual_running && exam.status !== "ended");
+      let hideConfirmation = "";
+      if (flow.hideStep === 1) {
+        hideConfirmation = `<section class="question-inline-confirmation" aria-labelledby="hideRealExamFirstTitle">
+          <span class="danger-label">Xác nhận 1/2</span>
+          <h3 id="hideRealExamFirstTitle">Ẩn “${esc(realExamDisplayName(exam))}”?</h3>
+          <p>Đợt thi sẽ không còn xuất hiện với quản trị viên thông thường. Admin không thể tự hoàn tác; mã, các phiên bản đề và toàn bộ kết quả vẫn được giữ trong database.</p>
+          <div class="actions"><button type="button" id="cancelHideRealExam">Hủy</button><button type="button" class="danger" id="continueHideRealExam">Tôi hiểu, tiếp tục</button></div>
+        </section>`;
+      }
+      if (flow.hideStep === 2) {
+        hideConfirmation = `<section class="question-inline-confirmation" aria-labelledby="hideRealExamFinalTitle">
+          <span class="danger-label">Xác nhận 2/2</span>
+          <h3 id="hideRealExamFinalTitle">Nhập ID Đợt thi để xác nhận</h3>
+          <p>Nhập chính xác <b>${String(exam.code).padStart(5, "0")}</b>. Sau thao tác này admin không thể khôi phục Đợt thi.</p>
+          <label for="confirmHideRealExamCode">ID Đợt thi<input id="confirmHideRealExamCode" inputmode="numeric" autocomplete="off" maxlength="5"></label>
+          <div class="actions"><button type="button" id="cancelHideRealExam">Hủy</button><button type="button" class="danger" id="confirmHideRealExam" disabled>Ẩn Đợt thi</button></div>
+        </section>`;
+      }
+      panel.innerHTML = `<section class="real-exam-wizard settings-pane" aria-labelledby="realExamDetailTitle">
+        <header class="real-exam-detail-header">
+          <div><span class="settings-eyebrow">Đợt thi thật</span><h2 id="realExamDetailTitle">${esc(realExamDisplayName(exam))}</h2><p class="muted">${esc(formatExportDateTime(exam.start_at))} – ${esc(formatExportDateTime(exam.end_at))}</p></div>
+          <div class="real-exam-detail-controls">
+            <span class="real-exam-status ${esc(exam.status)}">${esc(realExamStatusLabel(exam.status))}</span>
+            <label class="real-exam-run-toggle" title="Có thể Start hoặc Stop bất kỳ lúc nào. Start yêu cầu thời gian kết thúc chưa qua.">
+              <span>Stop</span>
+              <input id="realExamRunningToggle" type="checkbox" role="switch" ${isRunning ? "checked" : ""} aria-label="Start hoặc Stop Đợt thi thật">
+              <span class="real-exam-toggle-track" aria-hidden="true"><span></span></span>
+              <span>Start</span>
+            </label>
+          </div>
+        </header>
+        ${notice}
+        <dl class="real-exam-detail-metrics">
+          <div><dt>Câu hỏi trong Đề thi</dt><dd>${Number(exam.question_count || 0)}</dd></div>
+          <div><dt>Kết quả đã nộp</dt><dd>${Number(exam.result_count || 0)}</dd></div>
+          <div><dt>Phiên bản hiện tại</dt><dd>V${Number(exam.current_revision_no || 1)}</dd></div>
+          <div><dt>Số lần thi / phiên bản</dt><dd>${Number(exam.max_attempts || 1)}</dd></div>
+        </dl>
+        <section class="real-exam-share">
+          <div><span>Link Thi thật</span><a href="${esc(shareUrl)}" target="_blank" rel="noopener noreferrer">${esc(shareUrl)}</a></div>
+          <button type="button" id="openRealExamShare">Chia sẻ</button>
+        </section>
+        ${hideConfirmation || `<section class="question-action-group">
+          <div><h3>Thao tác</h3><p class="muted">Các hành động khả dụng theo trạng thái hiện tại.</p></div>
+          <div class="question-action-list">
+            <button type="button" class="question-action-row" id="manageRealExamResults"><span><b>Quản lý kết quả</b><small>Xem 20 kết quả gần nhất và xuất Excel</small></span><span>→</span></button>
+            <button type="button" class="question-action-row" id="editRealExam"><span><b>Sửa thông tin Đợt thi</b><small>Giữ nguyên ID; thay đổi nguồn hoặc nguyên tắc sẽ tạo phiên bản Đề thi mới</small></span><span>→</span></button>
+            ${exam.status === "scheduled" ? '<button type="button" class="question-action-row" id="regenerateRealExam"><span><b>Tạo lại Đề thi</b><small>Tạo ngẫu nhiên một Đề thi mới theo cấu hình hiện tại</small></span><span>↻</span></button>' : ""}
+            ${exam.status === "ended" ? '<button type="button" class="question-action-row" id="cloneRealExam"><span><b>Copy Đợt thi</b><small>Tạo Đợt thi độc lập với mã 5 số mới</small></span><span>→</span></button>' : ""}
+            ${exam.status === "ended" ? '<button type="button" class="question-action-row danger-row" id="hideRealExam"><span><b>Ẩn Đợt thi</b><small>Giữ mã và toàn bộ kết quả trong database</small></span><span>→</span></button>' : ""}
+          </div>
+        </section>`}
+        <footer class="question-wizard-footer"><button type="button" id="backToRealExamList">Quay lại danh sách</button><button type="button" data-close>Đóng</button></footer>
+      </section>`;
+      panel.querySelector("#backToRealExamList").onclick = () => renderNext({ view: "list", examId: null, message: "", hideStep: 0 });
+      panel.querySelector("#openRealExamShare").onclick = () => renderNext({ view: "share", hideStep: 0 });
+      const runningToggle = panel.querySelector("#realExamRunningToggle");
+      if (runningToggle) runningToggle.onchange = async () => {
+        const shouldRun = runningToggle.checked;
+        runningToggle.disabled = true;
+        try {
+          const { error } = await client.rpc("set_real_exam_running", {
+            target_real_exam_id: exam.id,
+            should_run: shouldRun
+          });
+          if (error) throw error;
+          await renderNext({
+            message: shouldRun
+              ? `Đã Start ${realExamDisplayName(exam)}. Học viên có thể tiếp tục vào thi.`
+              : `Đã Stop ${realExamDisplayName(exam)}. Đợt thi đang tạm dừng.`
+          });
+        } catch (error) {
+          runningToggle.checked = !shouldRun;
+          runningToggle.disabled = false;
+          showDialogError(error.message);
+        }
+      };
+      const resultsButton = panel.querySelector("#manageRealExamResults");
+      if (resultsButton) resultsButton.onclick = () => renderNext({ view: "results", message: "", revisionId: null });
+      const editButton = panel.querySelector("#editRealExam");
+      if (editButton) editButton.onclick = () => renderNext({ view: "form", clone: null, message: "" });
+      const cloneButton = panel.querySelector("#cloneRealExam");
+      if (cloneButton) cloneButton.onclick = () => renderNext({ view: "form", examId: null, clone: exam, message: "" });
+      const regenerateButton = panel.querySelector("#regenerateRealExam");
+      if (regenerateButton) regenerateButton.onclick = async () => {
+        const restore = setButtonBusy(regenerateButton, "Đang tạo lại...");
+        try {
+          const { data, error } = await client.rpc("regenerate_real_exam_snapshot", { target_real_exam_id: exam.id });
+          if (error) throw error;
+          await renderNext({ message: `Đã tạo lại Đề thi gồm ${Number(data?.question_count || 0)} câu hỏi.` });
+        } catch (error) {
+          showDialogError(error.message);
+        } finally {
+          restore();
+        }
+      };
+      const hideButton = panel.querySelector("#hideRealExam");
+      if (hideButton) hideButton.onclick = () => renderNext({ hideStep: 1 });
+      const cancelHide = panel.querySelector("#cancelHideRealExam");
+      if (cancelHide) cancelHide.onclick = () => renderNext({ hideStep: 0 });
+      const continueHide = panel.querySelector("#continueHideRealExam");
+      if (continueHide) continueHide.onclick = () => renderNext({ hideStep: 2 });
+      const confirmHide = panel.querySelector("#confirmHideRealExam");
+      const confirmHideCode = panel.querySelector("#confirmHideRealExamCode");
+      if (confirmHideCode && confirmHide) {
+        confirmHideCode.oninput = () => {
+          confirmHide.disabled = confirmHideCode.value.trim() !== String(exam.code).padStart(5, "0");
+        };
+        confirmHideCode.focus();
+      }
+      if (confirmHide) confirmHide.onclick = async () => {
+        const restore = setButtonBusy(confirmHide, "Đang ẩn...");
+        try {
+          const { error } = await client.rpc("hide_real_exam", {
+            target_real_exam_id: exam.id,
+            confirmation_code: Number(confirmHideCode.value)
+          });
+          if (error) throw error;
+          await renderRealExamSettings(panel, spaceId, space, { view: "list", message: `Đã ẩn ${realExamDisplayName(exam)}. Kết quả vẫn được giữ.` });
+        } catch (error) {
+          showDialogError(error.message);
+        } finally {
+          restore();
+        }
+      };
+      bindPanelCloseButtons(panel);
+      return;
+    }
+
+    if (flow.view === "results" && exam) {
+      const { data, error } = await client.rpc("list_real_exam_results", {
+        target_real_exam_id: exam.id,
+        result_limit: 20,
+        target_revision_id: flow.revisionId || null
+      });
+      if (error) return showDialogError(error.message);
+      const rows = Array.isArray(data) ? data : [];
+      panel.innerHTML = `<section class="real-exam-wizard settings-pane">
+        <header class="real-exam-list-header"><div><span class="settings-eyebrow">Kết quả Thi thật</span><h2>${esc(realExamDisplayName(exam))}</h2><p class="muted">20 kết quả nộp gần nhất.</p></div><button type="button" class="primary" id="exportRealExamV2Results" ${rows.length ? "" : "disabled"}>Xuất Excel</button></header>
+        <label class="real-exam-revision-filter">Phiên bản đề<select id="realExamRevisionFilter">
+          <option value="">Tất cả phiên bản</option>
+          ${(exam.revisions || []).map((revision) => `<option value="${revision.id}" ${Number(flow.revisionId) === Number(revision.id) ? "selected" : ""}>Phiên bản ${revision.revision_no} · ${revision.question_count} câu · ${revision.result_count} kết quả</option>`).join("")}
+        </select></label>
+        <div class="real-results-list">${rows.length ? realExamRowsTable(rows) : '<div class="question-bank-empty"><b>Chưa có kết quả</b><span>Kết quả sẽ xuất hiện sau khi học viên nộp bài.</span></div>'}</div>
+        <footer class="question-wizard-footer"><button type="button" id="backToRealExamDetail">Quay lại</button><button type="button" data-close>Đóng</button></footer>
+      </section>`;
+      panel.querySelector("#backToRealExamDetail").onclick = () => renderNext({ view: "detail" });
+      panel.querySelector("#realExamRevisionFilter").onchange = (event) => {
+        renderNext({
+          view: "results",
+          revisionId: event.target.value ? Number(event.target.value) : null
+        });
+      };
+      const exportButton = panel.querySelector("#exportRealExamV2Results");
+      if (exportButton) exportButton.onclick = async () => {
+        if (!window.XLSX) return showDialogError("Không thể khởi tạo chức năng xuất Excel.");
+        const restore = setButtonBusy(exportButton, "Đang tạo Excel...");
+        try {
+          const { data: allRows, error: exportError } = await client.rpc("list_real_exam_results", {
+            target_real_exam_id: exam.id,
+            result_limit: 5000,
+            target_revision_id: flow.revisionId || null
+          });
+          if (exportError) throw exportError;
+          const sheetRows = (allRows || []).map((row) => ({
+            "ID Đợt thi": `#${String(exam.code).padStart(5, "0")}`,
+            "Tên Đợt thi": exam.name,
+            "Phiên bản đề": `V${Number(row.real_exam_revision_no || 1)}`,
+            "Group": row.group_name || "Chưa phân nhóm",
+            "Học viên": row.student_name,
+            "Điểm": Number(row.score),
+            "Đúng": Number(row.correct_count),
+            "Sai": Number(row.wrong_count),
+            "Tổng số câu": Number(row.total_questions),
+            "Thời gian làm bài": formatExportDuration(row.duration_seconds),
+            "Bắt đầu": formatExportDateTime(row.started_at),
+            "Nộp bài": formatExportDateTime(row.submitted_at)
+          }));
+          const worksheet = XLSX.utils.json_to_sheet(sheetRows);
+          worksheet["!cols"] = [
+            { wch: 14 }, { wch: 32 }, { wch: 14 }, { wch: 24 }, { wch: 28 },
+            { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 14 }, { wch: 20 },
+            { wch: 22 }, { wch: 22 }
+          ];
+          const workbook = XLSX.utils.book_new();
+          XLSX.utils.book_append_sheet(workbook, worksheet, "Kết quả");
+          XLSX.writeFile(workbook, `ket-qua-thi-that-${String(exam.code).padStart(5, "0")}.xlsx`);
+        } catch (exportError) {
+          showDialogError(exportError.message);
+        } finally {
+          restore();
+        }
+      };
+      bindPanelCloseButtons(panel);
+      return;
+    }
+
+    const sourceExam = flow.clone || exam;
     let sets;
     try {
-      sets = await loadQuestionSets(id);
+      sets = await loadQuestionSets(spaceId);
     } catch (error) {
-      return showDialogError(error.message || "Không tải được Bộ câu hỏi.");
+      return showDialogError(error.message);
     }
-    const savedConfig = Array.isArray(space.real_question_sets) ? space.real_question_sets : [];
-    const selectedConfig = normalizeRealSetConfig(sets, savedConfig);
-    panel.innerHTML = `<form id="realForm" class="grid compact-dialog-form real-exam-form settings-pane">
-      <h2>Quản lý Đợt thi thật</h2>
+    const selectedConfig = normalizeRealSetConfig(sets, sourceExam?.sources || []);
+    const defaultName = flow.clone ? `Copy ${sourceExam.name}` : (sourceExam?.name || "");
+    panel.innerHTML = `<form id="realExamV2Form" class="real-exam-wizard settings-pane">
+      <header class="question-wizard-header"><div><span class="settings-eyebrow">${flow.clone ? "Copy Đợt thi" : exam ? "Sửa thông tin Đợt thi" : "Tạo Đợt thi thật"}</span><h2>${esc(exam ? realExamDisplayName(exam) : "Cấu hình Đợt thi mới")}</h2></div><p class="muted">${exam ? `Lưu thay đổi sẽ tạo Phiên bản ${Number(exam.current_revision_no || 1) + 1}, giữ nguyên ID và kết quả cũ.` : "Lưu biểu mẫu sẽ tạo một Đề thi hoàn chỉnh từ danh sách ID câu hỏi."}</p></header>
+      ${notice}
+      <section class="settings-section"><label>Tên Đợt thi thật<input name="name" value="${esc(defaultName)}" required></label></section>
       <section class="settings-section">
-        <div class="real-exam-header">
-          <div>
-            <h3>Thông tin đợt thi</h3>
-            <p class="muted">Tên và trạng thái mở Thi thật cho Space này.</p>
-          </div>
-          <label class="switch"><input name="enabled" type="checkbox" ${space.real_exam_enabled ? "checked" : ""}><span class="switch-track"></span><span>Bật Thi thật</span></label>
+        <div><h3>Thời gian thi</h3><p class="muted">Admin có thể đặt lại thời gian không phụ thuộc thời điểm hiện tại. Thời gian bắt đầu vẫn phải trước thời gian kết thúc.</p></div>
+        <div class="grid two real-exam-row">
+          <label>Ngày bắt đầu<input name="start_date" type="date" value="${flow.clone ? "" : toLocalDateInput(sourceExam?.start_at)}" required></label>
+          <label>Giờ bắt đầu<select name="start_time">${timeOptions(flow.clone ? "" : toLocalTimeText(sourceExam?.start_at))}</select></label>
+          <label>Ngày kết thúc<input name="end_date" type="date" value="${flow.clone ? "" : toLocalDateInput(sourceExam?.end_at)}" required></label>
+          <label>Giờ kết thúc<select name="end_time">${timeOptions(flow.clone ? "" : toLocalTimeText(sourceExam?.end_at))}</select></label>
         </div>
-        <label class="inline-required-field"><span>Tên của đợt thi thật <b aria-hidden="true">*</b></span><input name="real_exam_name" value="${esc(space.real_exam_name || "")}" placeholder="Ví dụ: Thi thật tháng 07/2026" required></label>
       </section>
       <section class="settings-section real-set-section">
-        <div>
-          <h3>Nguồn câu hỏi</h3>
-          <p class="muted">Chọn một hoặc nhiều Bộ câu hỏi và tỷ lệ lấy câu cho bài Thi thật.</p>
-        </div>
+        <div><h3>Nguồn câu hỏi</h3><p class="muted">Tổng tỷ lệ các ngân hàng được chọn phải bằng 100%.</p></div>
         <div class="real-set-list">${sets.map((set) => {
           const config = selectedConfig.find((item) => Number(item.id) === Number(set.id));
-          const selected = Boolean(config);
           return `<div class="real-set-item">
-            <label class="switch"><input type="checkbox" data-real-set-check="${set.id}" ${selected ? "checked" : ""}><span class="switch-track"></span><span>${esc(set.name)}</span></label>
+            <label class="switch"><input type="checkbox" data-real-set-check="${set.id}" ${config ? "checked" : ""}><span class="switch-track"></span><span>${esc(set.name)}</span></label>
             <span class="real-set-stats">${set.counts.total} câu · ${set.counts.multi} câu nhiều đáp án</span>
-            <label>Tỷ lệ câu (%)<input type="number" min="0" max="100" step="1" data-real-set-percent="${set.id}" value="${Number(config?.percent || 0)}" ${selected ? "" : "disabled"}></label>
+            <label>Tỷ lệ (%)<input type="number" min="0" max="100" data-real-set-percent="${set.id}" value="${Number(config?.percent || 0)}" ${config ? "" : "disabled"}></label>
           </div>`;
-        }).join("") || '<p class="muted">Chưa có Bộ câu hỏi.</p>'}</div>
+        }).join("")}</div>
         <p class="muted" id="realSetTotalHint"></p>
       </section>
       <section class="settings-section">
-        <div>
-          <h3>Quy tắc tạo đề</h3>
-          <p class="muted">Các tỷ lệ được tính trên những Bộ câu hỏi đã chọn ở vùng nguồn câu hỏi.</p>
-        </div>
+        <div><h3>Nguyên tắc tạo đề</h3><p class="muted">X là tổng số câu đề; Y là số câu nhiều đáp án trong X.</p></div>
         <div class="grid two real-exam-row">
-          ${selectField("question_percent", "Số lượng câu hỏi", [30,50,70,100], space.real_question_percent, "%")}
-          ${selectField("timer_seconds", "Thời gian mỗi câu", [45,60,90,120], space.real_timer_seconds, "s")}
+          ${selectField("question_percent", "Số lượng câu hỏi", [30,50,70,100], sourceExam?.question_percent || 50, "%")}
+          ${selectField("multi_percent", "Tỷ lệ câu nhiều đáp án", [30,50,70,100], sourceExam?.multi_percent || 50, "%")}
+          ${selectField("timer_seconds", "Thời gian mỗi câu", [45,60,90,120], sourceExam?.timer_seconds || 60, "s")}
+          ${selectField("max_attempts", "Số lần thi tối đa", [1,2,3,4,5], sourceExam?.max_attempts || 1, "")}
         </div>
-        <div class="grid two real-exam-row">
-          ${selectField("multi_percent", "Tỷ lệ câu nhiều đáp án", [30,50,70,100], space.real_multi_percent, "%")}
-          ${selectField("max_attempts", "Số lần thi tối đa", [1,2,3,4,5], space.real_max_attempts, "")}
-        </div>
-        <div class="scoring-field-row">
-          <label>Cách tính điểm<select name="scoring_method">
-            <option value="1" ${Number(space.real_scoring_method || 1) === 1 ? "selected" : ""}>Cách tính điểm 1</option>
-            <option value="2" ${Number(space.real_scoring_method || 1) === 2 ? "selected" : ""}>Cách tính điểm 2</option>
-          </select></label>
-          <div class="scoring-help">
-            <button type="button" class="scoring-help-button" aria-label="Xem chi tiết cách tính điểm" aria-expanded="false">?</button>
-            <div class="scoring-tooltip" role="tooltip">${scoringMethodTooltip(Number(space.real_scoring_method || 1))}</div>
-          </div>
-        </div>
+        <label>Cách tính điểm<select name="scoring_method">
+          <option value="1" ${Number(sourceExam?.scoring_method || 2) === 1 ? "selected" : ""}>Cách tính điểm 1</option>
+          <option value="2" ${Number(sourceExam?.scoring_method || 2) === 2 ? "selected" : ""}>Cách tính điểm 2</option>
+        </select></label>
+        <div id="realExamPoolPreview" class="real-exam-pool-preview" role="status" aria-live="polite"></div>
       </section>
-      <section class="settings-section">
-        <div>
-          <h3>Thời gian thi</h3>
-          <p class="muted">Ngày dùng calendar picker, giờ theo định dạng 24h và bước 15 phút.</p>
-        </div>
-        <div class="grid two real-exam-row">
-          <label>Ngày bắt đầu<input name="start_date" type="date" value="${toLocalDateInput(space.real_start_at)}"></label>
-          <label>Giờ bắt đầu<select name="start_time">${timeOptions(toLocalTimeText(space.real_start_at))}</select></label>
-          <label>Ngày kết thúc<input name="end_date" type="date" value="${toLocalDateInput(space.real_end_at)}"></label>
-          <label>Giờ kết thúc<select name="end_time">${timeOptions(toLocalTimeText(space.real_end_at))}</select></label>
-        </div>
-      </section>
-      <section class="settings-section">
-        <div class="section-heading">
-          <div>
-            <h3>Kết quả đợt thi thật gần nhất</h3>
-            <p class="muted">15 kết quả cao nhất của học viên.</p>
-          </div>
-          <div class="section-actions">
-            <button type="button" id="exportRealExamBtn">Tải Dữ liệu đợt thi thật</button>
-            <button type="button" class="primary" id="viewRealExamResultsBtn">Xem Kết quả thi thật</button>
-          </div>
-        </div>
-        <div id="realExamTopResults" class="real-results-list muted">Bấm “Xem Kết quả thi thật” để tải dữ liệu.</div>
-      </section>
-      <div class="settings-save"><button class="primary">Lưu thay đổi</button><button type="button" data-close>Đóng</button></div>
+      <footer class="question-wizard-footer"><button type="button" id="cancelRealExamForm">Quay lại</button><button class="primary">${exam ? `Tạo Phiên bản ${Number(exam.current_revision_no || 1) + 1}` : flow.clone ? "Tạo bản copy" : "Tạo Đợt thi"}</button></footer>
     </form>`;
-    wireRealExamForm(id);
-    document.getElementById("exportRealExamBtn").onclick = () => exportRealExamResults(id);
-    document.getElementById("viewRealExamResultsBtn").onclick = () => loadLatestRealExamResults(id);
-    bindPanelCloseButtons(panel);
+    panel.querySelector("#cancelRealExamForm").onclick = () => {
+      if (exam) renderNext({ view: "detail", clone: null });
+      else renderNext({ view: "list", clone: null });
+    };
     wireRealSetControls();
+    const updatePoolPreview = () => {
+      const checkedIds = [...panel.querySelectorAll("[data-real-set-check]:checked")].map((input) => Number(input.dataset.realSetCheck));
+      const total = sets.filter((set) => checkedIds.includes(Number(set.id))).reduce((sum, set) => sum + set.counts.total, 0);
+      const percent = Number(panel.querySelector('[name="question_percent"]').value || 0);
+      const multiPercent = Number(panel.querySelector('[name="multi_percent"]').value || 0);
+      const target = total ? Math.max(1, Math.round(total * percent / 100)) : 0;
+      const multi = Math.round(target * multiPercent / 100);
+      panel.querySelector("#realExamPoolPreview").innerHTML = `<span><b>${total}</b> câu trong nguồn</span><span><b>${target}</b> câu trong Đề thi</span><span><b>${multi}</b> câu nhiều đáp án mục tiêu</span><span><b>${Math.max(0, target - multi)}</b> câu một đáp án</span>`;
+    };
+    panel.querySelectorAll("[data-real-set-check], [data-real-set-percent], [name='question_percent'], [name='multi_percent']").forEach((input) => input.addEventListener("change", updatePoolPreview));
+    updatePoolPreview();
+    panel.querySelector("#realExamV2Form").onsubmit = async (event) => {
+      event.preventDefault();
+      const button = event.submitter;
+      const form = new FormData(event.target);
+      const payload = { name: String(form.get("name") || "").trim() };
+      const startAt = parseLocalDateTime(form.get("start_date"), form.get("start_time"));
+      const endAt = parseLocalDateTime(form.get("end_date"), form.get("end_time"));
+      if (startAt === "invalid" || endAt === "invalid" || !startAt || !endAt || new Date(startAt) >= new Date(endAt)) {
+        return showDialogError("Thời gian bắt đầu phải trước thời gian kết thúc.");
+      }
+      const sources = readRealQuestionSetConfig();
+      if (!sources?.length || sources.reduce((sum, item) => sum + Number(item.percent || 0), 0) !== 100) {
+        return showDialogError("Chọn nguồn câu hỏi và bảo đảm tổng tỷ lệ bằng 100%.");
+      }
+      Object.assign(payload, {
+        start_at: startAt,
+        end_at: endAt,
+        sources,
+        question_percent: Number(form.get("question_percent")),
+        multi_percent: Number(form.get("multi_percent")),
+        timer_seconds: Number(form.get("timer_seconds")),
+        max_attempts: Number(form.get("max_attempts")),
+        scoring_method: Number(form.get("scoring_method") || 2)
+      });
+      const restore = setButtonBusy(button, exam ? "Đang lưu..." : "Đang tạo...");
+      try {
+        const rpcName = exam ? "update_real_exam" : "create_real_exam";
+        const args = exam
+          ? { target_real_exam_id: exam.id, payload }
+          : { target_space_id: spaceId, payload };
+        const { data, error } = await client.rpc(rpcName, args);
+        if (error) throw error;
+        await renderRealExamSettings(panel, spaceId, space, {
+          view: "detail",
+          examId: Number(data.id),
+          message: exam
+            ? `Đã tạo Phiên bản ${Number(data.current_revision_no)} và giữ nguyên ID #${String(data.code).padStart(5, "0")}.`
+            : `Đã tạo ${realExamDisplayName(data)} với ${Number(data.question_count || 0)} câu hỏi.`
+        });
+      } catch (error) {
+        showDialogError(error.message);
+      } finally {
+        restore();
+      }
+    };
   }
 
   function normalizeRealSetConfig(sets, config) {
@@ -612,57 +1326,25 @@
   }
 
   async function renderResultSettings(panel, spaceId, space) {
-    panel.innerHTML = '<div class="panel">Đang tải cấu hình kết quả...</div>';
-    let periods = [];
-    try {
-      const { data, error } = await client.rpc("list_real_exam_periods", {
-        requested_slug: space.slug
-      });
-      if (error) throw error;
-      periods = data || [];
-    } catch (error) {
-      return showDialogError(error.message || "Không tải được danh sách đợt thi thật.");
-    }
     panel.innerHTML = `<section class="grid settings-pane">
       <h2>Quản lý kết quả</h2>
       <form id="resultRetentionForm" class="settings-section">
         <div>
-          <h3>Giới hạn lưu kết quả</h3>
-          <p class="muted">Hệ thống tự dọn dữ liệu cũ khi có kết quả mới và khi bạn lưu cấu hình này.</p>
+          <h3>Giới hạn kết quả Thi thử</h3>
+          <p class="muted">Kết quả Thi thật được giữ vĩnh viễn theo ID Đợt thi và quản lý trong từng Đợt thi thật.</p>
         </div>
-        <div class="grid two">
-          <label>Giữ kết quả thi thử trong số ngày
-            <input name="mock_result_retention_days" type="number" min="3" max="15" step="1" value="${Number(space.mock_result_retention_days || 7)}" required>
-          </label>
-          <label>Giữ kết quả thi thật trong số đợt
-            <input name="real_result_retention_exams" type="number" min="3" max="15" step="1" value="${Number(space.real_result_retention_exams || 7)}" required>
-          </label>
-        </div>
+        <label>Giữ kết quả Thi thử trong số ngày
+          <input name="mock_result_retention_days" type="number" min="3" max="15" step="1" value="${Number(space.mock_result_retention_days || 7)}" required>
+        </label>
         <div class="retention-rules">
           <span>Thi thử: tối đa 500 bản ghi/Space.</span>
-          <span>Thi thật: tối đa 1000 bản ghi/Space.</span>
+          <span>Thi thật: không tự động xóa.</span>
         </div>
         <div id="resultCleanupStatus" class="muted"></div>
         <div class="settings-save"><button class="primary">Lưu thay đổi</button><button type="button" data-close>Đóng</button></div>
       </form>
-      <section class="settings-section">
-        <div class="section-heading">
-          <div>
-            <h3>Quản lý dữ liệu thi thật</h3>
-            <p class="muted">Chọn Tên đợt thi thật để xem 30 kết quả cao nhất hoặc tải Excel của đợt đó.</p>
-          </div>
-        </div>
-        <div class="result-period-controls">
-          <label>Tên đợt thi thật<select id="resultExamPeriodSelect" ${periods.length ? "" : "disabled"}>${resultPeriodOptions(periods)}</select></label>
-          <button type="button" id="viewResultPeriodBtn" ${periods.length ? "" : "disabled"}>Xem dữ liệu</button>
-          <button type="button" class="primary" id="exportResultPeriodBtn" ${periods.length ? "" : "disabled"}>Tải về dữ liệu</button>
-        </div>
-        <div id="resultPeriodPreview" class="real-results-list muted">${periods.length ? "Chọn đợt thi thật rồi bấm “Xem dữ liệu”." : "Chưa có dữ liệu Thi thật."}</div>
-      </section>
     </section>`;
     document.getElementById("resultRetentionForm").onsubmit = (event) => saveResultSettings(event, spaceId);
-    document.getElementById("viewResultPeriodBtn").onclick = (event) => loadSelectedRealExamRows(space, event.currentTarget);
-    document.getElementById("exportResultPeriodBtn").onclick = (event) => exportSelectedRealExamRows(space, event.currentTarget);
     bindPanelCloseButtons(panel);
   }
 
@@ -679,11 +1361,9 @@
     const form = new FormData(event.target);
     const payload = {
       mock_result_retention_days: Number(form.get("mock_result_retention_days")),
-      real_result_retention_exams: Number(form.get("real_result_retention_exams")),
       updated_at: new Date().toISOString()
     };
     if (payload.mock_result_retention_days < 3 || payload.mock_result_retention_days > 15) return showDialogError("Số ngày lưu kết quả thi thử phải từ 3 đến 15.");
-    if (payload.real_result_retention_exams < 3 || payload.real_result_retention_exams > 15) return showDialogError("Số đợt lưu kết quả thi thật phải từ 3 đến 15.");
     const restoreButton = setButtonBusy(event.submitter, "Đang lưu...");
     try {
       const { error } = await client.from("spaces").update(payload).eq("id", spaceId);
@@ -692,7 +1372,7 @@
       if (cleanupError) return showDialogError(cleanupError.message);
       const status = document.getElementById("resultCleanupStatus");
       if (status) {
-        status.textContent = `Đã lưu và dọn ${Number(data?.mock_deleted_by_days || 0) + Number(data?.mock_deleted_by_cap || 0)} kết quả thi thử, ${Number(data?.real_deleted_by_exam_limit || 0) + Number(data?.real_deleted_by_cap || 0)} kết quả thi thật.`;
+        status.textContent = `Đã lưu và dọn ${Number(data?.mock_deleted_by_days || 0) + Number(data?.mock_deleted_by_cap || 0)} kết quả Thi thử. Kết quả Thi thật không bị thay đổi.`;
       }
       await renderSpaces();
     } finally {
@@ -770,9 +1450,10 @@
 
   function realExamRowsTable(rows) {
     return `<table class="compact-results-table">
-      <thead><tr><th>#</th><th>Học viên</th><th>Group</th><th>Điểm</th><th>Đúng</th><th>Thời gian</th><th>Nộp bài</th></tr></thead>
+      <thead><tr><th>#</th><th>Phiên bản</th><th>Học viên</th><th>Group</th><th>Điểm</th><th>Đúng</th><th>Thời gian</th><th>Nộp bài</th></tr></thead>
       <tbody>${rows.map((row, index) => `<tr>
         <td>${index + 1}</td>
+        <td>V${Number(row.real_exam_revision_no || 1)}</td>
         <td><b>${esc(row.student_name || "")}</b></td>
         <td>${esc(row.group_name || "Chưa phân nhóm")}</td>
         <td>${Number(row.score).toFixed(2)}</td>
@@ -1154,7 +1835,7 @@
     document.getElementById("deleteQuestionsBtn").onclick = () => deleteAllQuestions(spaceId);
   }
 
-  async function exportQuestions(spaceId, spaceSlug, questionSetId = null) {
+  async function exportQuestions(spaceId, spaceSlug, questionSetId = null, options = {}) {
     const button = document.querySelector(`[data-export-questions="${spaceId}"]`)
       || document.getElementById("exportQuestionsBtn");
     const buttonLabel = button?.textContent || "Tải ngân hàng câu hỏi";
@@ -1167,6 +1848,7 @@
         .from("questions")
         .select("order_no,type,content,options_json,correct_json")
         .eq("space_id", spaceId)
+        .is("hidden_at", null)
         .order("order_no");
       if (questionSetId) query = query.eq("question_set_id", questionSetId);
       const { data, error } = await query;
@@ -1197,9 +1879,11 @@
       link.click();
       link.remove();
       URL.revokeObjectURL(url);
-      setStatus(`Đã tải ${data.length} câu hỏi.`);
+      if (!options.preserveDialog) setStatus(`Đã tải ${data.length} câu hỏi.`);
+      return data.length;
     } catch (error) {
       showDialogError(error.message || "Không thể tải ngân hàng câu hỏi.");
+      return 0;
     } finally {
       if (button?.isConnected) {
         button.disabled = false;
@@ -1238,34 +1922,59 @@
     });
   }
 
-  async function importQuestions(spaceId, questions, questionSetId = null, button = null) {
-    if (!questions.length) return;
-    const restoreButton = setButtonBusy(button, "Đang lưu...");
+  function buildQuestionInsertRows(spaceId, questions, questionSetId, maxOrder) {
+    return questions.map((question, index) => ({
+      ...question,
+      space_id: spaceId,
+      question_set_id: questionSetId,
+      order_no: maxOrder + index + 1
+    }));
+  }
+
+  async function importQuestions(spaceId, questions, questionSetId = null, button = null, options = {}) {
+    if (!questions.length) return 0;
+    const restoreButton = setButtonBusy(button, `Đang thêm ${questions.length} câu...`);
     try {
       const { data: current } = await client.from("questions").select("order_no").eq("space_id", spaceId).order("order_no", { ascending: false }).limit(1);
       const maxOrder = current?.[0]?.order_no || 0;
-      const rows = questions.map((question, index) => ({ ...question, space_id: spaceId, question_set_id: questionSetId, order_no: maxOrder + index + 1 }));
+      const rows = buildQuestionInsertRows(spaceId, questions, questionSetId, maxOrder);
       const { error } = await client.from("questions").insert(rows);
-      if (error) return showDialogError(error.message);
-      closeDialog();
-      setStatus(`Đã thêm ${rows.length} câu hỏi.`);
-      await renderSpaces();
+      if (error) {
+        showDialogError(error.message);
+        return 0;
+      }
+      if (!options.preserveDialog) {
+        closeDialog();
+        setStatus(`Đã thêm ${rows.length} câu hỏi.`);
+        await renderSpaces();
+      }
+      return rows.length;
     } finally {
       restoreButton();
     }
   }
 
-  async function deleteAllQuestions(spaceId, questionSetId = null, button = null) {
-    if (!confirm("Xóa toàn bộ câu hỏi của Bộ câu hỏi đang chọn? Thao tác không thể hoàn tác.")) return;
+  async function deleteAllQuestions(spaceId, questionSetId = null, button = null, options = {}) {
+    if (!options.confirmed && !confirm("Xóa toàn bộ câu hỏi của Bộ câu hỏi đang chọn? Thao tác không thể hoàn tác.")) return false;
+    if (!questionSetId) {
+      showDialogError("Hãy chọn một ngân hàng câu hỏi trước khi xóa.");
+      return false;
+    }
     const restoreButton = setButtonBusy(button, "Đang xóa...");
     try {
-      let query = client.from("questions").delete().eq("space_id", spaceId);
-      if (questionSetId) query = query.eq("question_set_id", questionSetId);
-      const { error } = await query;
-      if (error) return showDialogError(error.message);
-      closeDialog();
-      setStatus("Đã xóa toàn bộ câu hỏi.");
-      await renderSpaces();
+      const { error } = await client.rpc("clear_question_set_questions", {
+        target_question_set_id: questionSetId
+      });
+      if (error) {
+        showDialogError(error.message);
+        return false;
+      }
+      if (!options.preserveDialog) {
+        closeDialog();
+        setStatus("Đã xóa toàn bộ câu hỏi.");
+        await renderSpaces();
+      }
+      return true;
     } finally {
       restoreButton();
     }
@@ -1503,7 +2212,7 @@
   function renderPassword() {
     const view = document.getElementById("view");
     view.innerHTML = `<header class="topbar"><div><h1>Đổi mật khẩu</h1></div></header>
-      <form class="panel grid" id="passwordForm" style="max-width:520px">
+      <form class="panel grid password-panel" id="passwordForm">
         <label>Mật khẩu mới<input name="password" type="password" minlength="8" required></label>
         <button class="primary">Cập nhật mật khẩu</button>
       </form>`;
@@ -1551,15 +2260,40 @@
     setStatus(error ? error.message : `Restore thành công: ${JSON.stringify(data)}`, Boolean(error));
   }
 
-  function showDialogError(message) {
-    let error = dialog.querySelector(".status.error");
-    if (!error) {
-      error = document.createElement("div");
-      error.className = "status error";
-      dialog.querySelector(".dialog-body").prepend(error);
+  function clearDialogError() {
+    if (dialogErrorTimer) {
+      window.clearTimeout(dialogErrorTimer);
+      dialogErrorTimer = null;
     }
-    error.textContent = message;
+    dialog.querySelector(".dialog-error-toast")?.remove();
   }
 
+  function showDialogError(message) {
+    clearDialogError();
+    const body = dialog.querySelector(".dialog-body");
+    if (!body) return;
+
+    const error = document.createElement("div");
+    error.className = "status error dialog-error-toast";
+    error.setAttribute("role", "alert");
+    error.setAttribute("aria-live", "assertive");
+
+    const text = document.createElement("span");
+    text.className = "dialog-error-message";
+    text.textContent = message;
+
+    const dismiss = document.createElement("button");
+    dismiss.type = "button";
+    dismiss.className = "dialog-error-dismiss";
+    dismiss.setAttribute("aria-label", "Ẩn thông báo lỗi");
+    dismiss.textContent = "×";
+    dismiss.onclick = clearDialogError;
+
+    error.append(text, dismiss);
+    body.prepend(error);
+    dialogErrorTimer = window.setTimeout(clearDialogError, 10000);
+  }
+
+  dialog.addEventListener("close", clearDialogError);
   boot();
 })();
