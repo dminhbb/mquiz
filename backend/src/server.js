@@ -404,6 +404,10 @@ function sendFrontendIndex(req, res) {
 
 app.get("/preview/*", sendQuizIndex);
 app.use("/static-source", express.static(frontendDir));
+app.get("/app-version.json", (req, res) => {
+  res.set("Cache-Control", "no-store");
+  res.sendFile(path.join(frontendDir, "app-version.json"));
+});
 app.get("/exam/:code(\\d{5})", sendFrontendIndex);
 app.get("/:slug([a-z0-9-]+)", sendFrontendIndex);
 

@@ -41,6 +41,9 @@
     leaderboardStatus: "",
     leaderboardRows: [],
     expandedDays: {},
+    examCode: null,
+    entryKind: "space",
+    cloudLoadError: "",
     focusViolationCount: 0,
     examWindowAway: false,
     updateAvailableVersion: ""
@@ -70,6 +73,10 @@
   const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
   const sorted = (letters) => [...new Set(letters || [])].sort();
   const currentQuestion = () => state.space.questions.find((question) => question.id === state.selectedIds[state.current]);
+  const isRealExamExperience = () => state.entryKind === "real" && Boolean(state.space?.real_exam?.enabled);
+  const currentAttemptMode = () => isRealExamExperience()
+    ? "real"
+    : state.mode === "practice" ? "practice" : "mock";
   let supabaseClient = null;
 
   async function sha256(text) {
@@ -96,8 +103,21 @@
       pathname = "/";
     }
     pathname = pathname.replace(/^\/preview(?=\/|$)/, "");
-    const slug = decodeURIComponent(pathname.replace(/^\/+|\/+$/g, ""));
+    const route = decodeURIComponent(pathname.replace(/^\/+|\/+$/g, ""));
+    const examMatch = route.match(/^exam\/(\d{5})$/);
+    if (examMatch) {
+      state.entryKind = "real";
+      if (await loadCloudRealExam(Number(examMatch[1]))) {
+        configureLoadedSpace();
+        renderSetup();
+        return;
+      }
+      return renderNotFound();
+    }
+    const slug = route;
     if (!slug) return renderWelcome();
+    state.entryKind = "space";
+    state.examCode = null;
     state.slug = slug;
     const cloudStatus = await getCloudSpaceStatus(slug);
     if (cloudStatus?.exists && !cloudStatus.published) {
@@ -107,6 +127,10 @@
     if (await loadCloudSpace(slug)) {
       configureLoadedSpace();
       renderSetup();
+      return;
+    }
+    if (cloudStatus?.exists) {
+      renderSpaceLoadError();
       return;
     }
     const index = window.__SQ_INDEX__ || {};
@@ -138,6 +162,7 @@
   async function loadCloudSpace(slug) {
     const client = getSupabaseClient();
     if (!client) return false;
+    state.cloudLoadError = "";
     try {
       const { data: space, error } = await client
         .from("spaces")
@@ -145,14 +170,19 @@
         .eq("slug", slug)
         .eq("published", true)
         .maybeSingle();
-      if (error || !space) return false;
+      if (error) throw error;
+      if (!space) return false;
       const [{ data: groups, error: groupError }, { data: questions, error: questionError }, { data: questionSets, error: questionSetError }] = await Promise.all([
         client.from("groups").select("name").eq("space_id", space.id).order("name"),
         client.from("questions").select("id,type,content,options_json,order_no,question_set_id").eq("space_id", space.id).order("order_no"),
         client.from("question_sets").select("id,name").eq("space_id", space.id).order("name")
       ]);
-      if (groupError || questionError || questionSetError || !questions?.length) return false;
+      const contentError = groupError || questionError || questionSetError;
+      if (contentError) throw contentError;
+      if (!questions?.length) throw new Error("Space chưa có câu hỏi khả dụng.");
       state.cloud = true;
+      state.entryKind = "space";
+      state.examCode = null;
       state.space = {
         id: space.id,
         name: space.name,
@@ -169,8 +199,8 @@
           options: question.options_json
         })),
         real_exam: {
-          enabled: Boolean(space.real_exam_enabled),
-          name: space.real_exam_name || "",
+          enabled: false,
+          name: "",
           scoring_method: Number(space.real_scoring_method || 1),
           question_percent: space.real_question_percent,
           timer_seconds: space.real_timer_seconds,
@@ -180,6 +210,59 @@
           version: space.real_exam_version,
           start_at: space.real_start_at,
           end_at: space.real_end_at
+        }
+      };
+      return true;
+    } catch (error) {
+      state.cloudLoadError = error?.message || "Không thể tải dữ liệu Space.";
+      return false;
+    }
+  }
+
+  async function loadCloudRealExam(code) {
+    const client = getSupabaseClient();
+    if (!client) return false;
+    try {
+      const { data, error } = await client.rpc("get_real_exam_public", { requested_code: code });
+      if (error || !data?.exists) return false;
+      const examSpace = data.space || {};
+      const questions = Array.isArray(data.questions) ? data.questions : [];
+      state.cloud = true;
+      state.entryKind = "real";
+      state.examCode = Number(data.code);
+      state.slug = examSpace.slug || "";
+      state.space = {
+        id: examSpace.id,
+        name: examSpace.name,
+        timer_seconds: Number(data.timer_seconds || 60),
+        groups: Array.isArray(examSpace.groups) ? examSpace.groups : [],
+        question_sets: [{ id: 0, name: `Đề thi #${String(data.code).padStart(5, "0")}` }],
+        questions: questions.map((question) => ({
+          id: Number(question.question_code ?? question.id),
+          question_code: Number(question.question_code ?? question.id),
+          type: question.type,
+          question_set_id: 0,
+          content: question.content,
+          options: question.options_json
+        })),
+        real_exam: {
+          enabled: true,
+          id: Number(data.id),
+          code: Number(data.code),
+          revision_id: Number(data.revision_id),
+          revision_no: Number(data.revision_no || 1),
+          name: data.name || "Đợt thi thật",
+          status: data.status,
+          manual_running: data.manual_running !== false,
+          scoring_method: Number(data.scoring_method || 2),
+          question_percent: 100,
+          timer_seconds: Number(data.timer_seconds || 60),
+          multi_percent: 100,
+          max_attempts: Number(data.max_attempts || 1),
+          question_sets: [],
+          version: `exam-${data.code}-v${Number(data.revision_no || 1)}`,
+          start_at: data.start_at,
+          end_at: data.end_at
         }
       };
       return true;
@@ -211,7 +294,7 @@
     state.selectedQuestionSetIds = savedSetIds.length ? savedSetIds : questionSets.map((set) => Number(set.id));
     const savedGroup = localStorage.getItem(`sq_group_${state.slug}`) || "";
     state.groupName = groups.includes(savedGroup) ? savedGroup : "";
-    if (state.space.real_exam?.enabled) {
+    if (isRealExamExperience()) {
       state.mode = "real";
       state.percent = Number(state.space.real_exam.question_percent || 50);
       state.timerSeconds = Number(state.space.real_exam.timer_seconds || 60);
@@ -222,7 +305,7 @@
   }
 
   function renderShell(content) {
-    app.innerHTML = `<div class="shell"><header class="topbar"><div class="brand">mquiz</div><button class="ghost" id="themeBtn">${state.theme === "dark" ? "Light" : "Dark"}</button></header><main>${content}</main><footer class="app-copyright">mquiz (C) 2026 | minhnd7</footer></div>`;
+    app.innerHTML = `<div class="shell"><header class="topbar"><div class="brand" aria-label="mquiz"><span>m</span>quiz</div><button class="ghost theme-button" id="themeBtn" aria-pressed="${state.theme === "dark"}">${state.theme === "dark" ? "Giao diện sáng" : "Giao diện tối"}</button></header><main id="main-content" tabindex="-1">${content}</main><footer class="app-copyright">mquiz © 2026 · minhnd7</footer></div>`;
     document.getElementById("themeBtn").onclick = toggleTheme;
     syncAppUpdateToast();
   }
@@ -360,7 +443,20 @@
 
   function renderNotFound() {
     stopTimer();
-    renderShell(`<section class="screen center"><div style="text-align:center"><h1>404 error</h1><p class="muted">Space chưa được phát hành hoặc không thể truy cập.</p></div></section>`);
+    renderShell(`<section class="screen center"><div class="text-center"><h1>404 error</h1><p class="muted">Space chưa được phát hành hoặc không thể truy cập.</p></div></section>`);
+  }
+
+  function renderSpaceLoadError() {
+    stopTimer();
+    renderShell(`<section class="screen center">
+      <div class="text-center">
+        <p class="error-code" aria-hidden="true">!</p>
+        <h1>Chưa tải được nội dung Space</h1>
+        <p class="muted measure-narrow">${esc(state.cloudLoadError || "Đã xảy ra lỗi khi tải câu hỏi. Vui lòng thử lại.")}</p>
+        <button type="button" class="primary" id="retrySpaceBtn">Thử tải lại</button>
+      </div>
+    </section>`);
+    document.getElementById("retrySpaceBtn").onclick = () => location.reload();
   }
 
   function calcQuestionCount(total, percent) {
@@ -428,7 +524,7 @@
   function renderSetup() {
     stopTimer();
     const timerOptions = [15, 30, 45, 60, 90, 120];
-    const realExam = Boolean(state.space.real_exam?.enabled);
+    const realExam = isRealExamExperience();
     if (realExam) {
       state.mode = "real";
       state.percent = Number(state.space.real_exam.question_percent || 50);
@@ -444,8 +540,23 @@
     const maxRealAttempts = Number(state.space.real_exam?.max_attempts || 1);
     const realExhausted = realExam && savedName && realAttempts >= maxRealAttempts;
     const realWindow = getRealExamWindow();
-    const realTimeClosed = realExam && !realWindow.isOpen;
+    const realPaused = realExam && realWindow.isWithinTime && state.space.real_exam?.status === "paused";
+    const realEnded = realExam && state.space.real_exam?.status === "ended";
+    const realTimeClosed = realExam && (!realWindow.isWithinTime || realPaused || realEnded);
     const realBlocked = realExhausted || realTimeClosed;
+    const realExamIdentity = realExam
+      ? `#${String(state.space.real_exam.code).padStart(5, "0")} - ${state.space.real_exam.name}`
+      : "";
+    const realSpaceName = state.space?.name || "Space";
+    const realWindowLabel = `${formatWindowDateTime(realWindow.start)} – ${formatWindowDateTime(realWindow.end)}`;
+    let realAvailabilityNotice = "";
+    if (realExam && realWindow.phase === "before") {
+      realAvailabilityNotice = `<section class="real-exam-availability scheduled" role="status"><span class="real-exam-space-name">${esc(realSpaceName)}</span><strong>${esc(realExamIdentity)}</strong><p>Chưa tới thời gian đợt thi, hãy vào thi trong khoảng thời gian ${esc(realWindowLabel)}</p></section>`;
+    } else if (realPaused) {
+      realAvailabilityNotice = `<section class="real-exam-availability paused" role="status"><span class="real-exam-space-name">${esc(realSpaceName)}</span><strong>${esc(realExamIdentity)}</strong><p>Đợt thi đã tạm dừng</p></section>`;
+    } else if (realExam && (realWindow.phase === "after" || realEnded)) {
+      realAvailabilityNotice = `<section class="real-exam-availability ended" role="status"><span class="real-exam-space-name">${esc(realSpaceName)}</span><strong>${esc(realExamIdentity)}</strong><p>Đã hết thời gian đợt thi</p><p>${esc(realWindowLabel)}</p></section>`;
+    }
     renderShell(`<section class="leaderboard-shell setup-dashboard">
       <aside class="setup-sidebar">
         <div class="setup-logo"><span>mq</span><b>mquiz</b></div>
@@ -463,10 +574,10 @@
         <header class="leaderboard-topbar">
           <div>
             <p class="setup-kicker">${esc(state.space?.name || "")}</p>
-            <h1>Cấu hình bài thi</h1>
+            <h1>${realExam ? esc(`${state.space.real_exam.name} · #${String(state.space.real_exam.code).padStart(5, "0")}`) : "Cấu hình bài thi"}</h1>
           </div>
         </header>
-        ${realTimeClosed ? `<section class="attempts-exhausted"><strong>Chưa tới giờ thi hoặc Đã quá thời gian thi.</strong><p>Bắt đầu: ${esc(formatWindowDateTime(realWindow.start))}</p><p>Kết thúc: ${esc(formatWindowDateTime(realWindow.end))}</p></section>` : realExhausted ? `<section class="attempts-exhausted"><strong>Bạn đã hết số lượt thi !</strong><p>Số lượt thi là: ${maxRealAttempts}</p></section>` : `<section class="setup-actionbar">
+        ${realAvailabilityNotice || (realExhausted ? `<section class="attempts-exhausted"><span class="real-exam-space-name">${esc(realSpaceName)}</span><strong>${esc(realExamIdentity)}</strong><p>Bạn đã hết số lượt thi</p><p>Số lượt thi là: ${maxRealAttempts}</p></section>` : `<section class="setup-actionbar">
           <div class="mode-control">
             <b>Chế độ làm bài</b>
             ${realExam ? `<span class="real-mode-label">Chế độ thi thật</span>` : `<div class="mode-toggle" role="group" aria-label="Chế độ làm bài">
@@ -479,13 +590,13 @@
         </section>
         <div class="setup-board">
           <section class="setup-widget">
-            <div class="widget-title"><h2>Tên học viên <span style="color: #b91c1c;">*</span></h2><p>Dùng để lưu kết quả và xếp hạng.</p></div>
+            <div class="widget-title"><h2>Tên học viên <span class="required-mark" aria-hidden="true">*</span></h2><p>Dùng để lưu kết quả và xếp hạng.</p></div>
             <label class="student-field">
               <input id="studentName" maxlength="80" value="${esc(state.studentName)}" placeholder="Nhập tên học viên" required>
             </label>
           </section>
           <section class="setup-widget">
-            <div class="widget-title"><h2>Group <span style="color: #b91c1c;">*</span></h2><p>Chọn Group của bạn trong Space này.</p></div>
+            <div class="widget-title"><h2>Group <span class="required-mark" aria-hidden="true">*</span></h2><p>Chọn Group của bạn trong Space này.</p></div>
             <label class="student-field">
               <select id="groupName" required>
                 <option value="">-- Chọn Group --</option>
@@ -516,7 +627,7 @@
               ${state.mode === "practice" ? `<button class="${state.timerSeconds === null ? "active" : ""}" data-timer="none"><b>Không giới hạn</b></button>` : ""}
             </div>
           </section>
-        </div>`}
+        </div>`)}
       </main>
     </section>`);
     document.querySelectorAll("[data-percent]").forEach((btn) => btn.onclick = () => { state.percent = Number(btn.dataset.percent); renderSetup(); });
@@ -564,7 +675,15 @@
     const end = state.space?.real_exam?.end_at ? new Date(state.space.real_exam.end_at) : null;
     const valid = start && end && Number.isFinite(start.getTime()) && Number.isFinite(end.getTime()) && start < end;
     const now = new Date();
-    return { start, end, isOpen: Boolean(valid && now >= start && now <= end) };
+    const isBefore = Boolean(valid && now < start);
+    const isAfter = Boolean(valid && now > end);
+    return {
+      start,
+      end,
+      isOpen: Boolean(valid && now >= start && now <= end),
+      isWithinTime: Boolean(valid && now >= start && now <= end),
+      phase: isBefore ? "before" : isAfter ? "after" : valid ? "within" : "invalid"
+    };
   }
 
   function formatWindowDateTime(value) {
@@ -642,7 +761,13 @@
       showToast("Vui lòng chọn Group.", "warning");
       return;
     }
-    if (state.mode === "real" && !getRealExamWindow().isOpen) {
+    if (
+      state.mode === "real"
+      && (
+        !getRealExamWindow().isOpen
+        || state.space.real_exam?.status === "paused"
+      )
+    ) {
       renderSetup();
       return;
     }
@@ -655,9 +780,22 @@
       showToast("Bộ câu hỏi đang chọn chưa có câu hỏi.", "warning");
       return;
     }
-    if (state.mode === "real" && getRealAttemptCount(name) >= Number(state.space.real_exam?.max_attempts || 1)) {
-      renderSetup();
-      return;
+    if (state.mode === "real") {
+      const maxAttempts = Number(state.space.real_exam?.max_attempts || 1);
+      let attemptCount = getRealAttemptCount(name);
+      const client = getSupabaseClient();
+      if (client && state.space.real_exam?.code) {
+        const { data } = await client.rpc("get_real_exam_attempt_count", {
+          requested_code: Number(state.space.real_exam.code),
+          requested_student_name: name
+        });
+        attemptCount = Math.max(attemptCount, Number(data || 0));
+        localStorage.setItem(realAttemptStorageKey(name), String(attemptCount));
+      }
+      if (attemptCount >= maxAttempts) {
+        renderSetup();
+        return;
+      }
     }
     const timeLabel = state.timerSeconds === null ? "Không giới hạn" : `${state.timerSeconds} giây/câu`;
     const confirmed = await confirmDialog({
@@ -714,25 +852,26 @@
       const cutoff = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
       let query = client
         .from("quiz_attempts")
-        .select("id, space_slug, student_name, student_name_key, group_name, mode, score, total_questions, correct_count, wrong_count, duration_seconds, started_at, submitted_at")
+        .select("id, space_slug, real_exam_code, student_name, student_name_key, group_name, mode, score, total_questions, correct_count, wrong_count, duration_seconds, started_at, submitted_at")
         .eq("space_slug", state.slug);
       const realWindow = getRealExamWindow();
-      if (state.space.real_exam?.enabled && realWindow.start && realWindow.end) {
+      if (isRealExamExperience() && realWindow.start && realWindow.end) {
         query = query
           .eq("mode", "real")
-          .gte("started_at", realWindow.start.toISOString())
-          .lte("started_at", realWindow.end.toISOString());
+          .eq("real_exam_code", Number(state.space.real_exam.code));
       } else {
-        query = query.gte("submitted_at", cutoff);
+        query = query
+          .eq("mode", "mock")
+          .gte("submitted_at", cutoff);
       }
       const { data, error } = await query.order("submitted_at", { ascending: false }).limit(1000);
       if (error) throw error;
       state.leaderboardRows = data || [];
       state.leaderboardStatus = state.leaderboardRows.length
         ? ""
-        : state.space.real_exam?.enabled
+        : isRealExamExperience()
           ? "Chưa có kết quả Thi thật trong khoảng thời gian đã cấu hình."
-          : "Chưa có kết quả thi.";
+          : "Chưa có kết quả Thi thử.";
     } catch (error) {
       state.leaderboardRows = [];
       state.leaderboardStatus = `Không tải được bảng xếp hạng: ${error.message || "Lỗi không xác định"}`;
@@ -760,7 +899,7 @@
           <div>
             <p class="setup-kicker">Trung tâm Hỗ trợ Tín dụng</p>
             <h1>Bảng xếp hạng</h1>
-            <p class="muted">${esc(state.space?.name || "")} · ${state.space.real_exam?.enabled ? "Kết quả trong kỳ Thi thật" : "3 ngày có kết quả gần nhất"}</p>
+            <p class="muted">${esc(state.space?.name || "")} · ${isRealExamExperience() ? "Kết quả trong kỳ Thi thật" : "Kết quả Thi thử trong 3 ngày gần nhất"}</p>
           </div>
           <button class="primary" id="backTopBtn">Quay lại</button>
         </header>
@@ -984,7 +1123,7 @@
       if (state.mode === "practice") {
         const client = getSupabaseClient();
         const { data, error } = await client.functions.invoke("quiz-evaluate", {
-          body: { action: "check", slug: state.slug, question_id: question.id, selected: selection }
+          body: { action: "check", slug: state.slug, question_id: question.id, selected: selection, exam_code: state.examCode }
         });
         if (error || data?.error) {
           state.locked[question.id] = false;
@@ -1058,7 +1197,7 @@
     if (state.cloud) {
       const client = getSupabaseClient();
       const { data, error } = await client.functions.invoke("quiz-evaluate", {
-        body: { action: "answers", slug: state.slug, question_ids: state.selectedIds }
+        body: { action: "answers", slug: state.slug, question_ids: state.selectedIds, exam_code: state.examCode }
       });
       if (error || data?.error) throw new Error(data?.error || error?.message || "Không tải được đáp án.");
       state.answers = { answers: data.answers || {} };
@@ -1121,7 +1260,8 @@
   }
 
   async function saveExamAttempt() {
-    if (state.mode === "practice") return;
+    const attemptMode = currentAttemptMode();
+    if (attemptMode === "practice") return;
     if (state.selectedIds.some((id) => !state.locked[id])) return;
     const client = getSupabaseClient();
     if (!client) {
@@ -1143,7 +1283,7 @@
         student_name: studentName,
         student_name_key: studentNameKey(studentName),
         group_name: state.groupName,
-        mode: state.mode,
+        mode: attemptMode,
         started_at: new Date(state.startedAt || Date.now()).toISOString(),
         score,
         total_questions: total,
@@ -1159,10 +1299,17 @@
         duration_score: breakdown.durationScore,
         punctuality_score: breakdown.punctualityScore,
         scoring_method: breakdown.scoringMethod,
-        focus_violation_count: Math.min(MAX_FOCUS_VIOLATION_COUNT, state.focusViolationCount)
+        focus_violation_count: Math.min(MAX_FOCUS_VIOLATION_COUNT, state.focusViolationCount),
+        ...(attemptMode === "real" ? {
+          real_exam_id: Number(state.space.real_exam?.id),
+          real_exam_code: Number(state.space.real_exam?.code),
+          real_exam_revision_id: Number(state.space.real_exam?.revision_id)
+        } : {})
       });
       if (error) throw error;
-      state.resultSaveStatus = "Đã lưu kết quả thi.";
+      state.resultSaveStatus = attemptMode === "real"
+        ? "Đã lưu kết quả Thi thật."
+        : "Đã lưu kết quả Thi thử.";
     } catch (error) {
       const message = error.message || "Lỗi không xác định";
       state.resultSaveStatus = message.includes("row-level security")
@@ -1280,7 +1427,7 @@
     const score = breakdown.score;
     const questionsById = new Map(state.space.questions.map((question) => [question.id, question]));
     renderShell(`<section class="screen grid">
-      <div class="panel result-panel" style="text-align:center"><div class="score" style="--score:${score}"><span>${score}</span></div><h1>${score} điểm</h1><p class="muted">${correctCount}/${total} câu đúng</p><p class="muted">${breakdown.scoringMethod === 2 ? `Câu trả lời đúng ${breakdown.knowledgeScore}/95 · Thời gian ${breakdown.durationScore}/5` : `Kiến thức ${breakdown.knowledgeScore}/75 · Quy mô ${breakdown.coverageScore}/10 · Thời gian ${breakdown.durationScore}/10 · Đúng giờ ${breakdown.punctualityScore}/5`}</p>${state.resultSaveStatus ? `<p class="muted">${esc(state.resultSaveStatus)}</p>` : ""}<div class="actions center-actions"><button class="primary" id="retryBtn">Làm lại</button><button class="ghost" id="resultLeaderboardBtn">Bảng xếp hạng</button></div></div>
+      <div class="panel result-panel text-center"><div class="score" style="--score:${score}"><span>${score}</span></div><h1>${score} điểm</h1><p class="muted">${correctCount}/${total} câu đúng</p><p class="muted">${breakdown.scoringMethod === 2 ? `Câu trả lời đúng ${breakdown.knowledgeScore}/95 · Thời gian ${breakdown.durationScore}/5` : `Kiến thức ${breakdown.knowledgeScore}/75 · Quy mô ${breakdown.coverageScore}/10 · Thời gian ${breakdown.durationScore}/10 · Đúng giờ ${breakdown.punctualityScore}/5`}</p>${state.resultSaveStatus ? `<p class="muted">${esc(state.resultSaveStatus)}</p>` : ""}<div class="actions center-actions"><button class="primary" id="retryBtn">Làm lại</button><button class="ghost" id="resultLeaderboardBtn">Bảng xếp hạng</button></div></div>
       <div class="grid">${state.selectedIds.map((id, index) => {
         const question = questionsById.get(id);
         const selected = state.selections[id] || [];

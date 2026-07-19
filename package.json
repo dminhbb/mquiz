@@ -8,6 +8,7 @@
     "start": "node backend/src/server.js",
     "generate": "node backend/src/cli-generate.js",
     "migrate:cloud": "node scripts/migrate-sqlite-to-supabase.js",
+    "design:check": "node scripts/check-design-system.js",
     "version:bump": "node scripts/bump-app-version.js"
   },
   "dependencies": {
