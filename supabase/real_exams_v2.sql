@@ -732,6 +732,10 @@ begin
   if target_exam.ended_at is null and now() <= target_exam.end_at then
     raise exception 'Chỉ có thể ẩn Đợt thi thật đã kết thúc.';
   end if;
+
+  -- Loại bỏ toàn bộ nguồn câu hỏi của đợt thi thật này trong real_exam_sources để tránh lock ngân hàng câu hỏi
+  delete from public.real_exam_sources where real_exam_id = target_real_exam_id;
+
   update public.real_exams
   set hidden_at = now(), hidden_by = auth.uid(), updated_at = now()
   where id = target_real_exam_id

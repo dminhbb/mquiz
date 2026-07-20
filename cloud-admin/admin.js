@@ -521,7 +521,7 @@
           .single(),
         client
           .from("real_exams")
-          .select("id,name,start_at,end_at")
+          .select("id,name,start_at,end_at,real_exam_sources(question_set_id)")
           .eq("space_id", spaceId)
           .is("hidden_at", null)
           .is("ended_at", null)
@@ -543,8 +543,6 @@
     } catch (error) {
       return showDialogError(error.message || "Không tải được ngân hàng câu hỏi.");
     }
-    const realExamRunning = isRealExamRunning(space);
-    if (realExamRunning) flow.confirmation = "";
     const selectedSet = sets.find((set) => Number(set.id) === flow.selectedSetId) || null;
     if (!selectedSet && flow.step > 1) {
       flow.step = 1;
@@ -553,6 +551,10 @@
       flow.confirmation = "";
     }
     const activeSet = sets.find((set) => Number(set.id) === flow.selectedSetId) || null;
+    const activeRealExamSources = space.active_real_exam?.real_exam_sources || [];
+    const lockedSetIds = new Set(activeRealExamSources.map(s => Number(s.question_set_id)));
+    const isCurrentSetLocked = activeSet && isRealExamRunning(space) && lockedSetIds.has(Number(activeSet.id));
+    if (isCurrentSetLocked) flow.confirmation = "";
     const realSetIds = realExamQuestionSetIds(space);
     const setIsUsedForRealExam = activeSet ? realSetIds.has(Number(activeSet.id)) : false;
     const on = (selector, handler) => {
@@ -663,7 +665,7 @@
         </header>
         ${questionWizardProgress(2)}
         ${questionWizardNotice(flow)}
-        ${realExamRunning ? `<section class="question-real-exam-lock" role="status" aria-labelledby="realExamDeleteLockTitle">
+        ${isCurrentSetLocked ? `<section class="question-real-exam-lock" role="status" aria-labelledby="realExamDeleteLockTitle">
           <div>
             <span class="warning-label">Đang khóa thao tác xóa</span>
             <h3 id="realExamDeleteLockTitle">${esc(space.real_exam_name || "Đợt thi thật")} đang diễn ra</h3>
@@ -688,11 +690,11 @@
         <section class="question-danger-zone" aria-labelledby="questionDangerTitle">
           <div><span class="danger-label">Khu vực nguy hiểm</span><h3 id="questionDangerTitle">Xóa dữ liệu</h3></div>
           <div class="question-action-list">
-            <button type="button" class="question-action-row danger-row" id="clearQuestions" ${activeSet.counts.total && !realExamRunning ? "" : "disabled"}>
-              <span><b>Xóa toàn bộ câu hỏi trong ngân hàng</b><small>${realExamRunning ? "Bị khóa trong thời gian Đợt thi thật diễn ra" : `Ẩn câu hỏi, giữ lại ngân hàng “${esc(activeSet.name)}”`}</small></span><span aria-hidden="true">→</span>
+            <button type="button" class="question-action-row danger-row" id="clearQuestions" ${activeSet.counts.total && !isCurrentSetLocked ? "" : "disabled"}>
+              <span><b>Xóa toàn bộ câu hỏi trong ngân hàng</b><small>${isCurrentSetLocked ? "Bị khóa trong thời gian Đợt thi thật diễn ra" : `Ẩn câu hỏi, giữ lại ngân hàng “${esc(activeSet.name)}”`}</small></span><span aria-hidden="true">→</span>
             </button>
-            <button type="button" class="question-action-row danger-row" id="deleteQuestionSet" ${deleteDisabled || realExamRunning ? "disabled" : ""}>
-              <span><b>Xóa ngân hàng câu hỏi</b><small>${realExamRunning ? "Bị khóa trong thời gian Đợt thi thật diễn ra" : deleteDisabled ? "Space phải có ít nhất một ngân hàng" : `Ẩn ngân hàng và ${activeSet.counts.total} câu hỏi bên trong`}</small></span><span aria-hidden="true">→</span>
+            <button type="button" class="question-action-row danger-row" id="deleteQuestionSet" ${deleteDisabled || isCurrentSetLocked ? "disabled" : ""}>
+              <span><b>Xóa ngân hàng câu hỏi</b><small>${isCurrentSetLocked ? "Bị khóa trong thời gian Đợt thi thật diễn ra" : deleteDisabled ? "Space phải có ít nhất một ngân hàng" : `Ẩn ngân hàng và ${activeSet.counts.total} câu hỏi bên trong`}</small></span><span aria-hidden="true">→</span>
             </button>
           </div>
         </section>`}

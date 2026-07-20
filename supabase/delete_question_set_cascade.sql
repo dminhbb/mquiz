@@ -43,12 +43,14 @@ begin
   if exists (
     select 1
     from public.real_exams exam
+    join public.real_exam_sources source on source.real_exam_id = exam.id
     where exam.space_id = target_set.space_id
+      and source.question_set_id = target_question_set_id
       and exam.hidden_at is null
       and exam.ended_at is null
       and now() between exam.start_at and exam.end_at
   ) then
-    raise exception 'Không thể xóa câu hỏi khi Đợt thi thật đang diễn ra. Hãy chờ đợt thi kết thúc hoặc điều chỉnh thời gian Thi thật.';
+    raise exception 'Không thể xóa câu hỏi khi đang là nguồn của một Đợt thi thật đang diễn ra. Hãy chờ đợt thi kết thúc hoặc loại bỏ ngân hàng này khỏi cấu hình Đợt thi thật.';
   end if;
 
   select count(*)
@@ -111,12 +113,14 @@ begin
   if exists (
     select 1
     from public.real_exams exam
+    join public.real_exam_sources source on source.real_exam_id = exam.id
     where exam.space_id = target_set.space_id
+      and source.question_set_id = target_question_set_id
       and exam.hidden_at is null
       and exam.ended_at is null
       and now() between exam.start_at and exam.end_at
   ) then
-    raise exception 'Không thể xóa ngân hàng câu hỏi khi Đợt thi thật đang diễn ra. Hãy chờ đợt thi kết thúc hoặc điều chỉnh thời gian Thi thật.';
+    raise exception 'Không thể xóa ngân hàng câu hỏi khi đang là nguồn của một Đợt thi thật đang diễn ra. Hãy chờ đợt thi kết thúc hoặc loại bỏ ngân hàng này khỏi cấu hình Đợt thi thật.';
   end if;
 
   perform 1
