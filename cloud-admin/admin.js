@@ -426,21 +426,41 @@
   }
 
   async function loadQuestionSets(spaceId) {
+    const isSuper = state.profile?.role === "superadmin";
+    let setQuery = client.from("question_sets").select("*").eq("space_id", spaceId).order("name");
+    if (!isSuper) {
+      setQuery = setQuery.is("hidden_at", null);
+    }
+    let questionQuery = client.from("questions").select("id,type,question_set_id,hidden_at,permanent_hidden").eq("space_id", spaceId);
+    if (!isSuper) {
+      questionQuery = questionQuery.is("hidden_at", null);
+    }
     const [{ data: sets, error: setError }, { data: questions, error: questionError }] = await Promise.all([
-      client.from("question_sets").select("*").eq("space_id", spaceId).is("hidden_at", null).order("name"),
-      client.from("questions").select("id,type,question_set_id").eq("space_id", spaceId).is("hidden_at", null)
+      setQuery,
+      questionQuery
     ]);
     if (setError) throw setError;
     if (questionError) throw questionError;
+
+    const setsList = sets || [];
+    const hiddenSetIds = new Set(setsList.filter(s => s.hidden_at !== null).map(s => s.id));
+
     const counts = new Map();
     (questions || []).forEach((question) => {
       const key = question.question_set_id || 0;
-      const current = counts.get(key) || { total: 0, multi: 0 };
-      current.total += 1;
-      if (question.type === "multi") current.multi += 1;
-      counts.set(key, current);
+      const isQuestionActive = question.hidden_at === null;
+      const isRestorableHiddenQuestion = isSuper && 
+                                         question.hidden_at !== null && 
+                                         hiddenSetIds.has(key) && 
+                                         !question.permanent_hidden;
+      if (isQuestionActive || isRestorableHiddenQuestion) {
+        const current = counts.get(key) || { total: 0, multi: 0 };
+        current.total += 1;
+        if (question.type === "multi") current.multi += 1;
+        counts.set(key, current);
+      }
     });
-    return (sets || []).map((set) => ({ ...set, counts: counts.get(set.id) || { total: 0, multi: 0 } }));
+    return setsList.map((set) => ({ ...set, counts: counts.get(set.id) || { total: 0, multi: 0 } }));
   }
 
   function realExamQuestionSetIds(space) {
@@ -578,9 +598,10 @@
           </div>
           <div class="question-bank-list" aria-label="Danh sách ngân hàng câu hỏi">
             ${sets.map((set) => {
-              return `<button type="button" class="question-bank-row" data-select-question-set="${set.id}">
+              const isHidden = set.hidden_at !== null;
+              return `<button type="button" class="question-bank-row${isHidden ? " hidden-bank" : ""}" data-select-question-set="${set.id}">
                 <span class="question-bank-copy">
-                  <b>${esc(set.name)}</b>
+                  <b>${esc(set.name)} ${isHidden ? '<span class="status-badge hidden-badge">Đã ẩn</span>' : ""}</b>
                   <span>${set.counts.total} câu hỏi · ${set.counts.multi} câu nhiều đáp án</span>
                 </span>
                 <span class="question-bank-trailing">
@@ -658,6 +679,7 @@
           <div class="actions"><button type="button" data-cancel-confirmation>Hủy</button><button type="button" class="danger" id="confirmDeleteBank" disabled>Xóa ngân hàng và câu hỏi</button></div>
         </section>`;
       }
+      const isSetHidden = activeSet.hidden_at !== null;
       panel.innerHTML = `<section class="question-wizard settings-pane" aria-labelledby="questionWizardTitle">
         <header class="question-wizard-header">
           <div><span class="settings-eyebrow">Ngân hàng đã chọn</span><h2 id="questionWizardTitle">${esc(activeSet.name)}</h2></div>
@@ -673,7 +695,17 @@
           </div>
           <button type="button" id="openRealExamSettings">Mở cấu hình Đợt thi thật</button>
         </section>` : ""}
-        ${confirmation || `<section class="question-action-group" aria-labelledby="manageQuestionBankTitle">
+        ${confirmation || (isSetHidden ? `<section class="question-action-group" aria-labelledby="manageQuestionBankTitle">
+          <div><h3 id="manageQuestionBankTitle">Quản lý ngân hàng (Đã ẩn)</h3><p class="muted">Ngân hàng câu hỏi này đang bị ẩn.</p></div>
+          <div class="question-action-list">
+            <button type="button" class="question-action-row" id="unhideQuestionSet">
+              <span><b>Khôi phục ngân hàng câu hỏi</b><small>Bỏ ẩn ngân hàng này và phục hồi các câu hỏi hợp lệ bên trong</small></span><span aria-hidden="true">→</span>
+            </button>
+            <button type="button" class="question-action-row" id="exportQuestionsBtn" ${activeSet.counts.total ? "" : "disabled"}>
+              <span><b>Tải về ngân hàng câu hỏi</b><small>${activeSet.counts.total ? "Xuất toàn bộ câu hỏi của ngân hàng thành CSV" : "Ngân hàng chưa có câu hỏi để tải"}</small></span><span aria-hidden="true">↓</span>
+            </button>
+          </div>
+        </section>` : `<section class="question-action-group" aria-labelledby="manageQuestionBankTitle">
           <div><h3 id="manageQuestionBankTitle">Quản lý ngân hàng</h3><p class="muted">Chọn một thao tác để tiếp tục.</p></div>
           <div class="question-action-list">
             <button type="button" class="question-action-row" id="editQuestionSet">
@@ -697,7 +729,7 @@
               <span><b>Xóa ngân hàng câu hỏi</b><small>${isCurrentSetLocked ? "Bị khóa trong thời gian Đợt thi thật diễn ra" : deleteDisabled ? "Space phải có ít nhất một ngân hàng" : `Ẩn ngân hàng và ${activeSet.counts.total} câu hỏi bên trong`}</small></span><span aria-hidden="true">→</span>
             </button>
           </div>
-        </section>`}
+        </section>`)}
         <footer class="question-wizard-footer">
           <button type="button" id="backToQuestionSets">Quay lại</button>
           <button type="button" data-close>Đóng</button>
@@ -743,6 +775,36 @@
             } finally {
               restoreButton();
             }
+          };
+        }
+        return;
+      }
+      if (isSetHidden) {
+        const unhideBtn = panel.querySelector("#unhideQuestionSet");
+        if (unhideBtn) {
+          unhideBtn.onclick = async () => {
+            const restore = setButtonBusy(unhideBtn, "Đang khôi phục...");
+            try {
+              const { error } = await client.rpc("unhide_question_set", {
+                target_question_set_id: activeSet.id
+              });
+              if (error) throw error;
+              await renderQuestionSettings(panel, spaceId, space, {
+                step: 1,
+                message: `Đã khôi phục ngân hàng “${activeSet.name}”.`
+              });
+            } catch (error) {
+              showDialogError(error.message || "Không thể khôi phục ngân hàng câu hỏi.");
+            } finally {
+              restore();
+            }
+          };
+        }
+        const exportBtn = panel.querySelector("#exportQuestionsBtn");
+        if (exportBtn) {
+          exportBtn.onclick = async () => {
+            const count = await exportQuestions(spaceId, space.slug, activeSet.id, { preserveDialog: true });
+            if (count) await renderNext({ message: `Đã tải ${count} câu hỏi từ “${activeSet.name}”.` });
           };
         }
         return;
@@ -944,6 +1006,7 @@
             <option value="active" ${flow.status === "active" ? "selected" : ""}>Đang hoạt động</option>
             <option value="paused" ${flow.status === "paused" ? "selected" : ""}>Đã tạm dừng</option>
             <option value="ended" ${flow.status === "ended" ? "selected" : ""}>Đã kết thúc</option>
+            ${state.profile?.role === "superadmin" ? `<option value="hidden" ${flow.status === "hidden" ? "selected" : ""}>Đã ẩn</option>` : ""}
           </select></label>
           <button type="submit">Lọc</button>
         </form>
@@ -1031,7 +1094,7 @@
 
     if (flow.view === "detail" && exam) {
       const shareUrl = realExamShareUrl(exam.code);
-      const isRunning = Boolean(exam.manual_running && exam.status !== "ended");
+      const isRunning = Boolean(exam.manual_running && exam.status !== "ended" && exam.status !== "hidden");
       let hideConfirmation = "";
       if (flow.hideStep === 1) {
         hideConfirmation = `<section class="question-inline-confirmation" aria-labelledby="hideRealExamFirstTitle">
@@ -1057,7 +1120,7 @@
             <span class="real-exam-status ${esc(exam.status)}">${esc(realExamStatusLabel(exam.status))}</span>
             <label class="real-exam-run-toggle" title="Có thể Start hoặc Stop bất kỳ lúc nào. Start yêu cầu thời gian kết thúc chưa qua.">
               <span>Stop</span>
-              <input id="realExamRunningToggle" type="checkbox" role="switch" ${isRunning ? "checked" : ""} aria-label="Start hoặc Stop Đợt thi thật">
+              <input id="realExamRunningToggle" type="checkbox" role="switch" ${isRunning ? "checked" : ""} ${exam.status === "hidden" ? "disabled" : ""} aria-label="Start hoặc Stop Đợt thi thật">
               <span class="real-exam-toggle-track" aria-hidden="true"><span></span></span>
               <span>Start</span>
             </label>
@@ -1078,10 +1141,11 @@
           <div><h3>Thao tác</h3><p class="muted">Các hành động khả dụng theo trạng thái hiện tại.</p></div>
           <div class="question-action-list">
             <button type="button" class="question-action-row" id="manageRealExamResults"><span><b>Quản lý kết quả</b><small>Xem 20 kết quả gần nhất và xuất Excel</small></span><span>→</span></button>
-            <button type="button" class="question-action-row" id="editRealExam"><span><b>Sửa thông tin Đợt thi</b><small>Giữ nguyên ID; thay đổi nguồn hoặc nguyên tắc sẽ tạo phiên bản Đề thi mới</small></span><span>→</span></button>
+            ${exam.status !== "hidden" ? `<button type="button" class="question-action-row" id="editRealExam"><span><b>Sửa thông tin Đợt thi</b><small>Giữ nguyên ID; thay đổi nguồn hoặc nguyên tắc sẽ tạo phiên bản Đề thi mới</small></span><span>→</span></button>` : ""}
             ${exam.status === "scheduled" ? '<button type="button" class="question-action-row" id="regenerateRealExam"><span><b>Tạo lại Đề thi</b><small>Tạo ngẫu nhiên một Đề thi mới theo cấu hình hiện tại</small></span><span>↻</span></button>' : ""}
             ${exam.status === "ended" ? '<button type="button" class="question-action-row" id="cloneRealExam"><span><b>Copy Đợt thi</b><small>Tạo Đợt thi độc lập với mã 5 số mới</small></span><span>→</span></button>' : ""}
             ${exam.status === "ended" ? '<button type="button" class="question-action-row danger-row" id="hideRealExam"><span><b>Ẩn Đợt thi</b><small>Giữ mã và toàn bộ kết quả trong database</small></span><span>→</span></button>' : ""}
+            ${exam.status === "hidden" ? '<button type="button" class="question-action-row" id="unhideRealExam"><span><b>Bỏ ẩn Đợt thi</b><small>Hiển thị lại Đợt thi thật này cho tất cả Admin</small></span><span>→</span></button>' : ""}
           </div>
         </section>`}
         <footer class="question-wizard-footer"><button type="button" id="backToRealExamList">Quay lại danh sách</button><button type="button" data-close>Đóng</button></footer>
@@ -1151,6 +1215,21 @@
           });
           if (error) throw error;
           await renderRealExamSettings(panel, spaceId, space, { view: "list", message: `Đã ẩn ${realExamDisplayName(exam)}. Kết quả vẫn được giữ.` });
+        } catch (error) {
+          showDialogError(error.message);
+        } finally {
+          restore();
+        }
+      };
+      const unhideExamButton = panel.querySelector("#unhideRealExam");
+      if (unhideExamButton) unhideExamButton.onclick = async () => {
+        const restore = setButtonBusy(unhideExamButton, "Đang khôi phục...");
+        try {
+          const { error } = await client.rpc("unhide_real_exam", {
+            target_real_exam_id: exam.id
+          });
+          if (error) throw error;
+          await renderRealExamSettings(panel, spaceId, space, { view: "list", message: `Đã khôi phục ${realExamDisplayName(exam)}.` });
         } catch (error) {
           showDialogError(error.message);
         } finally {
