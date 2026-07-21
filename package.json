@@ -1,4 +1,4 @@
-﻿{
+{
   "name": "simple-quiz",
   "version": "0.1.0",
   "private": true,
@@ -10,7 +10,9 @@
     "generate": "node backend/src/cli-generate.js",
     "migrate:cloud": "node scripts/migrate-sqlite-to-supabase.js",
     "design:check": "node scripts/check-design-system.js",
-    "version:bump": "node scripts/bump-app-version.js"
+    "version:bump": "node scripts/bump-app-version.js",
+    "deploy": "wrangler deploy",
+    "preview": "wrangler dev"
   },
   "dependencies": {
     "archiver": "^7.0.1",
@@ -21,5 +23,7 @@
     "express-session": "^1.18.1",
     "multer": "^2.0.2"
   },
-  "devDependencies": {}
+  "devDependencies": {
+    "wrangler": "^4.112.0"
+  }
 }
