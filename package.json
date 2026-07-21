@@ -1,4 +1,4 @@
-{
+﻿{
   "name": "simple-quiz",
   "version": "0.1.0",
   "private": true,
@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "node backend/src/server.js",
     "start": "node backend/src/server.js",
+    "build": "sh build-cloudflare.sh",
     "generate": "node backend/src/cli-generate.js",
     "migrate:cloud": "node scripts/migrate-sqlite-to-supabase.js",
     "design:check": "node scripts/check-design-system.js",
