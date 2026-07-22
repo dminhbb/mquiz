@@ -556,7 +556,7 @@
     if (isCurrentSetLocked) flow.confirmation = "";
     // real_exam_sources is the canonical source configuration. Do not use the legacy
     // spaces.real_question_sets field here: it can be stale and produce false badges.
-    const realSetIds = lockedSetIds;
+    const realSetIds = isRealExamRunning(space) ? lockedSetIds : new Set();
     const setIsUsedForRealExam = activeSet ? realSetIds.has(Number(activeSet.id)) : false;
     const on = (selector, handler) => {
       panel.querySelectorAll(selector).forEach((element) => {
@@ -1076,8 +1076,9 @@
     if (flow.view === "detail" && exam) {
       const shareUrl = realExamShareUrl(exam.code);
       const isRunning = Boolean(exam.manual_running && exam.status !== "ended" && exam.status !== "hidden");
-      const rebuildNotice = exam.needs_rebuild
-        ? '<section class="question-real-exam-lock" role="status"><div><span class="warning-label">Cần build lại đề</span><h3>Đợt thi sẽ build lại khi Start</h3><p>Nguồn câu hỏi hoặc nguyên tắc tạo đề đã thay đổi. Start sẽ tạo phiên bản đề mới.</p></div></section>'
+      const rebuildInvalid = Boolean(exam.rebuild_validation && (!exam.rebuild_validation.has_sources || exam.rebuild_validation.has_empty_source));
+      const rebuildNotice = exam.needs_rebuild || rebuildInvalid
+        ? `<section class="question-real-exam-lock" role="status"><div><span class="warning-label">${rebuildInvalid ? "Cấu hình nguồn chưa hợp lệ" : "Cần build lại đề"}</span><h3>${rebuildInvalid ? "Chưa thể Start Đợt thi" : "Đợt thi sẽ build lại khi Start"}</h3><p>${rebuildInvalid ? "Hãy chọn ít nhất một nguồn câu hỏi đang hoạt động và có từ 1 câu hỏi trở lên trước khi Start." : "Nguồn câu hỏi hoặc nguyên tắc tạo đề đã thay đổi. Start sẽ tạo phiên bản đề mới."}</p></div></section>`
         : "";
       let hideConfirmation = "";
       if (flow.hideStep === 1) {

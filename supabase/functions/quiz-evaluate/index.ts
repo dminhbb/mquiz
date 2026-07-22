@@ -37,13 +37,32 @@ Deno.serve(async (request) => {
       let question: { id?: number; question_code?: number; correct_json: unknown } | null = null;
       if (realExamId) {
         const questionCode = Number(body.question_id);
-        const { data: snapshot } = await admin
+        const { data: snapshot, error: snapshotError } = await admin
           .from("real_exam_revision_question_snapshots")
           .select("question_code,correct_json")
           .eq("revision_id", realExamRevisionId)
           .eq("question_code", questionCode)
           .maybeSingle();
-        question = snapshot;
+        if (!snapshotError && snapshot) {
+          question = snapshot;
+        } else {
+          // Backwards compatibility: active revisions created before the snapshot
+          // migration still have the canonical real_exam_question_refs relation.
+          const { data: reference } = await admin
+            .from("real_exam_question_refs")
+            .select("question_code")
+            .eq("real_exam_id", realExamId)
+            .eq("question_code", questionCode)
+            .maybeSingle();
+          if (reference) {
+            const response = await admin
+              .from("questions")
+              .select("question_code,correct_json")
+              .eq("question_code", questionCode)
+              .maybeSingle();
+            question = response.data;
+          }
+        }
       } else {
         const response = await admin
           .from("questions")
@@ -70,8 +89,25 @@ Deno.serve(async (request) => {
           .select("question_code,correct_json")
           .eq("revision_id", realExamRevisionId)
           .in("question_code", ids);
-        questions = response.data || [];
-        queryError = response.error;
+        if (!response.error && response.data?.length) {
+          questions = response.data;
+        } else {
+          const { data: references, error: referenceError } = await admin
+            .from("real_exam_question_refs")
+            .select("question_code")
+            .eq("real_exam_id", realExamId)
+            .in("question_code", ids);
+          if (referenceError) throw referenceError;
+          const allowedCodes = (references || []).map((item) => Number(item.question_code));
+          if (allowedCodes.length) {
+            const fallback = await admin
+              .from("questions")
+              .select("question_code,correct_json")
+              .in("question_code", allowedCodes);
+            questions = fallback.data || [];
+            queryError = fallback.error;
+          }
+        }
       } else {
         const response = await admin
           .from("questions")

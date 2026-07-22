@@ -32,15 +32,6 @@ begin
     and source.question_set_id = set_id
     and exam.hidden_at is null;
 
-  -- If a stopped exam loses every usable question from one source, detach that
-  -- source now. Start will require the admin to complete a valid new configuration.
-  if tg_op = 'UPDATE' and new.hidden_at is not null and old.hidden_at is null
-     and not exists (select 1 from public.questions q where q.question_set_id = set_id and q.hidden_at is null) then
-    delete from public.real_exam_sources source
-    using public.real_exams exam
-    where source.real_exam_id = exam.id and source.question_set_id = set_id
-      and exam.hidden_at is null and not exam.manual_running;
-  end if;
   return coalesce(new, old);
 end;
 $$;
@@ -101,6 +92,19 @@ begin
     if not exists (select 1 from public.real_exam_sources where real_exam_id = target_real_exam_id) then
       raise exception 'Đợt thi cần build lại nhưng hiện không còn nguồn câu hỏi. Hãy cấu hình nguồn trước khi Start.';
     end if;
+    if exists (
+      select 1
+      from public.real_exam_sources source
+      left join public.question_sets set_row
+        on set_row.id = source.question_set_id and set_row.hidden_at is null
+      left join public.questions question
+        on question.question_set_id = source.question_set_id and question.hidden_at is null
+      where source.real_exam_id = target_real_exam_id
+      group by source.question_set_id, set_row.id
+      having set_row.id is null or count(question.id) = 0
+    ) then
+      raise exception 'Đợt thi chưa thể Start vì có nguồn câu hỏi đã lưu trữ hoặc không còn câu hỏi. Hãy vào Quản lý Đợt thi để chọn nguồn có ít nhất một câu hỏi.';
+    end if;
     generated_count := public.generate_real_exam_snapshot_unchecked(target_real_exam_id);
     revision_id := public.create_real_exam_revision_unchecked(target_real_exam_id);
   end if;
@@ -132,7 +136,11 @@ begin
     'current_revision_no', (select revision_no from public.real_exam_revisions where id = target_exam.current_revision_id),
     'question_count', (select count(*) from public.real_exam_question_refs where real_exam_id = target_real_exam_id),
     'result_count', (select count(*) from public.quiz_attempts where real_exam_id = target_real_exam_id),
-    'sources', coalesce((select jsonb_agg(jsonb_build_object('id', source.question_set_id, 'name', source.question_set_name, 'percent', source.percent) order by source.question_set_name) from public.real_exam_sources source where source.real_exam_id = target_real_exam_id), '[]'::jsonb),
+    'sources', coalesce((select jsonb_agg(jsonb_build_object('id', source.question_set_id, 'name', source.question_set_name, 'percent', source.percent, 'active_question_count', (select count(*) from public.questions question where question.question_set_id = source.question_set_id and question.hidden_at is null)) order by source.question_set_name) from public.real_exam_sources source where source.real_exam_id = target_real_exam_id), '[]'::jsonb),
+    'rebuild_validation', jsonb_build_object(
+      'has_sources', exists(select 1 from public.real_exam_sources source where source.real_exam_id = target_real_exam_id),
+      'has_empty_source', exists(select 1 from public.real_exam_sources source left join public.question_sets set_row on set_row.id = source.question_set_id and set_row.hidden_at is null left join public.questions question on question.question_set_id = source.question_set_id and question.hidden_at is null where source.real_exam_id = target_real_exam_id group by source.question_set_id, set_row.id having set_row.id is null or count(question.id) = 0)
+    ),
     'revisions', coalesce((select jsonb_agg(jsonb_build_object('id', revision.id, 'revision_no', revision.revision_no, 'start_at', revision.start_at, 'end_at', revision.end_at, 'question_count', (select count(*) from public.real_exam_revision_question_refs ref where ref.revision_id = revision.id), 'result_count', (select count(*) from public.quiz_attempts attempt where attempt.real_exam_revision_id = revision.id)) order by revision.revision_no desc) from public.real_exam_revisions revision where revision.real_exam_id = target_real_exam_id), '[]'::jsonb)
   );
 end;

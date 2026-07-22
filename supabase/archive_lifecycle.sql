@@ -110,7 +110,7 @@ begin
   if exists (
     select 1 from public.real_exams exam join public.real_exam_sources source on source.real_exam_id = exam.id
     where source.question_set_id = target_question_set_id and exam.hidden_at is null
-      and exam.ended_at is null and now() between exam.start_at and exam.end_at
+      and exam.manual_running and exam.ended_at is null and now() between exam.start_at and exam.end_at
   ) then raise exception 'Không thể lưu trữ câu hỏi khi đang là nguồn của Đợt thi thật diễn ra.'; end if;
 
   update public.questions
@@ -136,7 +136,7 @@ begin
   if exists (
     select 1 from public.real_exams exam join public.real_exam_sources source on source.real_exam_id = exam.id
     where source.question_set_id = target_question_set_id and exam.hidden_at is null
-      and exam.ended_at is null and now() between exam.start_at and exam.end_at
+      and exam.manual_running and exam.ended_at is null and now() between exam.start_at and exam.end_at
   ) then raise exception 'Không thể lưu trữ ngân hàng đang là nguồn của Đợt thi thật diễn ra.'; end if;
 
   update public.questions

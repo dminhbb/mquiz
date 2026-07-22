@@ -922,10 +922,11 @@ Local admin vẫn là hệ thống độc lập. Lệnh xóa câu hỏi của lo
 > Migration bắt buộc: chạy `supabase/real_exam_rebuild.sql` sau `archive_lifecycle.sql`.
 
 - `real_exams.needs_rebuild = true` khi nguồn đề thay đổi, tỷ lệ nguồn thay đổi, quy tắc tạo đề thay đổi, hoặc câu hỏi trong nguồn được thêm/lưu trữ/xóa.
-- Khi Admin Stop, ngân hàng không còn bị khóa. Lưu trữ toàn bộ câu hỏi hoặc lưu trữ ngân hàng sẽ gỡ nguồn đó khỏi các Đợt thi đang Stop và đặt `needs_rebuild = true`.
+- Khi Admin Stop, ngân hàng không còn bị khóa, không phụ thuộc khoảng thời gian đã cấu hình. Lưu trữ câu hỏi hoặc toàn bộ câu hỏi chỉ đặt `needs_rebuild = true` và giữ nguồn để Admin thấy nguồn đã rỗng; lưu trữ cả ngân hàng mới gỡ nguồn đó khỏi các Đợt thi đang Stop.
 - Khi Start, `set_real_exam_running` build snapshot và tạo revision mới nếu cờ là `true`; sau khi build thành công cờ trở thành `false`, cập nhật `last_built_at` và tăng `build_no`.
 - Badge xanh và khóa thao tác trong màn hình Ngân hàng chỉ đọc `real_exam_sources` của Đợt thi đang chạy. Không dùng `spaces.real_question_sets` vì đây là cấu hình legacy có thể cũ.
 - Học viên luôn bị chặn ở cả UI lẫn trigger ghi lượt thi khi Đợt thi có trạng thái `paused`.
+- Start bị chặn ở backend nếu không còn nguồn hoặc bất kỳ nguồn nào bị lưu trữ/không còn câu hỏi. Màn hình quản lý hiển thị cảnh báo và yêu cầu chọn ít nhất một nguồn có câu hỏi trước khi Start.
 
 ## 24. Phiên bản ứng dụng
 
