@@ -2128,7 +2128,7 @@
 
   function scoringMethodTooltip(method) {
     return method === 2
-      ? `<b>Cách tính điểm 2</b><span>95 điểm theo tỷ lệ câu đúng tuyệt đối; câu nhiều đáp án phải đúng toàn bộ. 5 điểm theo tốc độ. Không tính quy mô đề hoặc đúng giờ.</span>`
+      ? `<b>Cách tính điểm 2</b><span>A = (số câu đúng / tổng câu) × 95. B = tổng câu × thời gian mỗi câu. C = ((B − thời gian làm bài) / B) × 5, tối đa 5. Điểm cuối = A + C.</span>`
       : `<b>Cách tính điểm 1</b><span>75 điểm kiến thức có tính gần đúng; 10 điểm quy mô đề; 10 điểm tốc độ; 5 điểm đúng giờ.</span>`;
   }
 

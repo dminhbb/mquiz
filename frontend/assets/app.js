@@ -1377,12 +1377,14 @@
     const maximumDuration = totalQuestions * timerSeconds;
     const minimumReasonableDuration = maximumDuration * 0.3;
     if (scoringMethod === 2) {
-      const knowledgeScore = totalQuestions ? 95 * multiAwareCorrectCount() / totalQuestions : 0;
-      const durationScore = maximumDuration > minimumReasonableDuration
-        ? 5 * clamp((maximumDuration - durationSeconds) / (maximumDuration - minimumReasonableDuration), 0, 1)
-        : 5;
+      // Method 2: A = correct-answer ratio × 95; B = configured maximum time;
+      // C = (B - actual duration) / B × 5. Both components are capped at their maxima.
+      const knowledgeScore = totalQuestions ? (multiAwareCorrectCount() / totalQuestions) * 95 : 0;
+      const durationScore = maximumDuration > 0
+        ? clamp(((maximumDuration - durationSeconds) / maximumDuration) * 5, 0, 5)
+        : 0;
       return {
-        score: roundScore(clamp(knowledgeScore + durationScore, 0, 100)),
+        score: Math.round(clamp(knowledgeScore + durationScore, 0, 100)),
         scoringMethod,
         knowledgeScore: roundScore(knowledgeScore),
         coverageScore: 0,
@@ -1400,7 +1402,7 @@
     const punctualityScore = calculatePunctualityScore(state.startedAt);
 
     return {
-      score: roundScore(clamp(knowledgeScore + coverageScore + durationScore + punctualityScore, 0, 100)),
+      score: Math.round(clamp(knowledgeScore + coverageScore + durationScore + punctualityScore, 0, 100)),
       scoringMethod,
       knowledgeScore: roundScore(knowledgeScore),
       coverageScore: roundScore(coverageScore),
@@ -1446,10 +1448,32 @@
         const question = questionsById.get(id);
         const selected = state.selections[id] || [];
         const answers = state.answers?.answers?.[id] || [];
+        const selectedSet = new Set(selected);
+        const answerSet = new Set(answers);
+        const optionReport = Object.entries(question.options).map(([letter, text]) => {
+          const isSelected = selectedSet.has(letter);
+          const isCorrect = answerSet.has(letter);
+          const isWrongSelection = isSelected && !isCorrect;
+          const isMissingMultiAnswer = question.type === "multi" && isCorrect && !isSelected;
+          const classes = [
+            "result-answer-option",
+            isSelected ? "selected" : "",
+            isCorrect && isSelected ? "correct" : "",
+            isWrongSelection ? "wrong" : "",
+            isMissingMultiAnswer ? "missing" : ""
+          ].filter(Boolean).join(" ");
+          const marker = isWrongSelection
+            ? "Bạn chọn sai"
+            : isMissingMultiAnswer
+              ? "Bạn bỏ sót đáp án đúng"
+              : isCorrect && isSelected ? "Bạn chọn đúng" : "";
+          return `<li class="${classes}"><b>${esc(letter)}</b><span>${esc(text)}</span>${marker ? `<small>${marker}</small>` : ""}</li>`;
+        }).join("");
         return `<div class="panel review ${state.correctness[id] ? "correct" : "wrong"}">
           <h3>Câu ${index + 1}. ${esc(question.content)}</h3>
           <p><b>Bạn chọn:</b> ${esc(selected.length ? selected.map((letter) => `${letter}. ${question.options[letter]}`).join("; ") : "Chưa trả lời")}</p>
           <p><b>Đáp án đúng:</b> ${esc(answers.map((letter) => `${letter}. ${question.options[letter]}`).join("; "))}</p>
+          <ul class="result-answer-options" aria-label="Chi tiết đáp án câu ${index + 1}">${optionReport}</ul>
         </div>`;
       }).join("")}</div>
     </section>`);

@@ -843,6 +843,42 @@ h3 { font-size: 18px; }
 .review { border-left: 4px solid var(--line); padding-left: 14px; }
 .review.correct { border-color: var(--correct); }
 .review.wrong { border-color: var(--wrong); }
+
+.result-answer-options {
+  display: grid;
+  gap: 8px;
+  margin: 14px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.result-answer-option {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 11px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--sheet);
+}
+
+.result-answer-option.correct {
+  border-color: var(--correct);
+  color: var(--correct);
+}
+
+.result-answer-option.wrong,
+.result-answer-option.missing {
+  border-color: var(--wrong);
+  background: color-mix(in srgb, var(--wrong), var(--sheet) 91%);
+  color: var(--wrong);
+}
+
+.result-answer-option small {
+  font-size: 12px;
+  font-weight: 700;
+}
 .score {
   width: 148px;
   height: 148px;

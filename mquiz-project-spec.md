@@ -932,3 +932,10 @@ Local admin vẫn là hệ thống độc lập. Lệnh xóa câu hỏi của lo
 
 - `npm run version:bump` tạo phiên bản timestamp mới, cập nhật cache-busting query string của cả trang học viên và Admin, đồng thời cập nhật `frontend/app-version.json`.
 - Footer của hai trang hiển thị `Version` và `Build`; mỗi lần phát hành tính năng phải chạy lệnh bump trước build/deploy.
+
+## 25. Cách tính điểm 2
+
+- `A = (số câu trả lời đúng / tổng số câu hỏi) × 95`.
+- `B = tổng số câu hỏi × thời gian cài đặt cho mỗi câu` (giây).
+- `C = ((B - thời gian làm bài) / B) × 5`, giới hạn từ `0` đến `5`.
+- Điểm cuối cùng là `A + C`, giới hạn tối đa `100`. Câu nhiều đáp án chỉ được tính đúng khi chọn đúng toàn bộ đáp án.
