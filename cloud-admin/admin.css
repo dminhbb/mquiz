@@ -1366,6 +1366,11 @@ dialog.space-settings-dialog,
   font-weight: 500;
 }
 
+.app-build-info {
+  color: color-mix(in srgb, currentColor 55%, transparent);
+  font-size: 0.9em;
+}
+
 @media (max-width: 1000px) {
   .space-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }

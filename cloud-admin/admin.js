@@ -125,7 +125,7 @@
       <main class="workspace" id="main-content" tabindex="-1">
         ${state.status ? `<div class="status ${state.error ? "error" : ""}" role="${state.error ? "alert" : "status"}" aria-live="${state.error ? "assertive" : "polite"}">${esc(state.status)}</div>` : ""}
         <div id="view"></div>
-        <footer class="copyright">mquiz © 2026 · minhnd7</footer>
+        <footer class="copyright">mquiz © 2026 · minhnd7 <span class="app-build-info">· Version ${esc(APP_VERSION)} · Build ${esc(APP_VERSION)}</span></footer>
       </main>
     </section>`;
     document.querySelectorAll("[data-view]").forEach((button) => {
@@ -455,21 +455,8 @@
     return setsList.map((set) => ({ ...set, counts: counts.get(set.id) || { total: 0, multi: 0 } }));
   }
 
-  function realExamQuestionSetIds(space) {
-    return new Set((Array.isArray(space.real_question_sets) ? space.real_question_sets : [])
-      .map((item) => Number(item.id ?? item.question_set_id))
-      .filter(Number.isFinite));
-  }
-
-  function isRealExamRunning(space, timestamp = Date.now()) {
-    if (space.active_real_exam) return true;
-    const start = new Date(space.real_start_at || "").getTime();
-    const end = new Date(space.real_end_at || "").getTime();
-    return Boolean(space.real_exam_enabled)
-      && Number.isFinite(start)
-      && Number.isFinite(end)
-      && timestamp >= start
-      && timestamp <= end;
+  function isRealExamRunning(space) {
+    return Boolean(space.active_real_exam?.manual_running);
   }
 
   function formatAdminDateTime(value) {
@@ -533,7 +520,7 @@
           .single(),
         client
           .from("real_exams")
-          .select("id,name,start_at,end_at,real_exam_sources(question_set_id)")
+          .select("id,name,start_at,end_at,manual_running,real_exam_sources(question_set_id)")
           .eq("space_id", spaceId)
           .is("hidden_at", null)
           .is("ended_at", null)
@@ -567,7 +554,9 @@
     const lockedSetIds = new Set(activeRealExamSources.map(s => Number(s.question_set_id)));
     const isCurrentSetLocked = activeSet && isRealExamRunning(space) && lockedSetIds.has(Number(activeSet.id));
     if (isCurrentSetLocked) flow.confirmation = "";
-    const realSetIds = realExamQuestionSetIds(space);
+    // real_exam_sources is the canonical source configuration. Do not use the legacy
+    // spaces.real_question_sets field here: it can be stale and produce false badges.
+    const realSetIds = lockedSetIds;
     const setIsUsedForRealExam = activeSet ? realSetIds.has(Number(activeSet.id)) : false;
     const on = (selector, handler) => {
       panel.querySelectorAll(selector).forEach((element) => {
@@ -1087,6 +1076,9 @@
     if (flow.view === "detail" && exam) {
       const shareUrl = realExamShareUrl(exam.code);
       const isRunning = Boolean(exam.manual_running && exam.status !== "ended" && exam.status !== "hidden");
+      const rebuildNotice = exam.needs_rebuild
+        ? '<section class="question-real-exam-lock" role="status"><div><span class="warning-label">Cần build lại đề</span><h3>Đợt thi sẽ build lại khi Start</h3><p>Nguồn câu hỏi hoặc nguyên tắc tạo đề đã thay đổi. Start sẽ tạo phiên bản đề mới.</p></div></section>'
+        : "";
       let hideConfirmation = "";
       if (flow.hideStep === 1) {
         hideConfirmation = `<section class="question-inline-confirmation" aria-labelledby="hideRealExamFirstTitle">
@@ -1119,6 +1111,7 @@
           </div>
         </header>
         ${notice}
+        ${rebuildNotice}
         <dl class="real-exam-detail-metrics">
           <div><dt>Câu hỏi trong Đề thi</dt><dd>${Number(exam.question_count || 0)}</dd></div>
           <div><dt>Kết quả đã nộp</dt><dd>${Number(exam.result_count || 0)}</dd></div>

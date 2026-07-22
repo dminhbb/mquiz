@@ -305,7 +305,7 @@
   }
 
   function renderShell(content) {
-    app.innerHTML = `<div class="shell"><header class="topbar"><div class="brand" aria-label="mquiz"><span>m</span>quiz</div></header><main id="main-content" tabindex="-1">${content}</main><footer class="app-copyright">mquiz © 2026 · minhnd7</footer></div><button class="ghost theme-fab" id="themeBtn" type="button" aria-pressed="${state.theme === "dark"}" aria-label="${state.theme === "dark" ? "Chuyển sang giao diện sáng" : "Chuyển sang giao diện tối"}">${state.theme === "dark" ? "Light" : "Dark"}</button>`;
+    app.innerHTML = `<div class="shell"><header class="topbar"><div class="brand" aria-label="mquiz"><span>m</span>quiz</div></header><main id="main-content" tabindex="-1">${content}</main><footer class="app-copyright">mquiz © 2026 · minhnd7 <span class="app-build-info">· Version ${esc(APP_VERSION)} · Build ${esc(APP_VERSION)}</span></footer></div><button class="ghost theme-fab" id="themeBtn" type="button" aria-pressed="${state.theme === "dark"}" aria-label="${state.theme === "dark" ? "Chuyển sang giao diện sáng" : "Chuyển sang giao diện tối"}">${state.theme === "dark" ? "Light" : "Dark"}</button>`;
     document.getElementById("themeBtn").onclick = toggleTheme;
     syncAppUpdateToast();
   }

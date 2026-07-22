@@ -914,3 +914,20 @@ Bảo mật: Dùng `SUPABASE_SERVICE_ROLE_KEY` nội bộ. Validate space publis
 ### Local SQLite
 
 Local admin vẫn là hệ thống độc lập. Lệnh xóa câu hỏi của local hiện là hard-delete và không được coi là tương đương với Cloud archive lifecycle. Không dùng local để vận hành dữ liệu có Đợt thi thật cần lưu lịch sử.
+
+---
+
+## 23. Cờ build lại Đợt thi thật
+
+> Migration bắt buộc: chạy `supabase/real_exam_rebuild.sql` sau `archive_lifecycle.sql`.
+
+- `real_exams.needs_rebuild = true` khi nguồn đề thay đổi, tỷ lệ nguồn thay đổi, quy tắc tạo đề thay đổi, hoặc câu hỏi trong nguồn được thêm/lưu trữ/xóa.
+- Khi Admin Stop, ngân hàng không còn bị khóa. Lưu trữ toàn bộ câu hỏi hoặc lưu trữ ngân hàng sẽ gỡ nguồn đó khỏi các Đợt thi đang Stop và đặt `needs_rebuild = true`.
+- Khi Start, `set_real_exam_running` build snapshot và tạo revision mới nếu cờ là `true`; sau khi build thành công cờ trở thành `false`, cập nhật `last_built_at` và tăng `build_no`.
+- Badge xanh và khóa thao tác trong màn hình Ngân hàng chỉ đọc `real_exam_sources` của Đợt thi đang chạy. Không dùng `spaces.real_question_sets` vì đây là cấu hình legacy có thể cũ.
+- Học viên luôn bị chặn ở cả UI lẫn trigger ghi lượt thi khi Đợt thi có trạng thái `paused`.
+
+## 24. Phiên bản ứng dụng
+
+- `npm run version:bump` tạo phiên bản timestamp mới, cập nhật cache-busting query string của cả trang học viên và Admin, đồng thời cập nhật `frontend/app-version.json`.
+- Footer của hai trang hiển thị `Version` và `Build`; mỗi lần phát hành tính năng phải chạy lệnh bump trước build/deploy.

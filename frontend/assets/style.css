@@ -2588,6 +2588,11 @@ select {
   }
 }
 
+.app-build-info {
+  color: color-mix(in srgb, currentColor 45%, transparent);
+  font-size: 0.82em;
+}
+
 /* Student comfort palette: pastel brown-gray paper, clear taupe separation, focused clay actions. */
 body:has(.shell) {
   background: var(--student-paper);

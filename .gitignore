@@ -11,6 +11,7 @@ backend/data/
 !supabase/real_exams_v2.sql
 !supabase/real_exam_revisions.sql
 !supabase/archive_lifecycle.sql
+!supabase/real_exam_rebuild.sql
 
 # Generated deployment files
 backend/dist/

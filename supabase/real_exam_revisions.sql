@@ -392,6 +392,9 @@ begin
   if target_exam.hidden_at is not null then
     raise exception 'Đợt thi thật đã được ẩn.';
   end if;
+  if target_exam.manual_running and now() between target_exam.start_at and target_exam.end_at then
+    raise exception 'Hãy Stop Đợt thi trước khi thay đổi nguồn hoặc nguyên tắc tạo đề.';
+  end if;
 
   start_value := nullif(payload ->> 'start_at', '')::timestamptz;
   end_value := nullif(payload ->> 'end_at', '')::timestamptz;
@@ -417,13 +420,10 @@ begin
   returning * into target_exam;
 
   perform public.replace_real_exam_sources(target_real_exam_id, payload -> 'sources');
-  generated_count := public.generate_real_exam_snapshot_unchecked(target_real_exam_id);
-  created_revision_id := public.create_real_exam_revision_unchecked(target_real_exam_id);
-
-  select revision_no
-  into created_revision_no
-  from public.real_exam_revisions
-  where id = created_revision_id;
+  update public.real_exams
+  set needs_rebuild = true,
+      updated_at = now()
+  where id = target_real_exam_id;
 
   select *
   into target_exam
@@ -431,10 +431,11 @@ begin
   where id = target_real_exam_id;
 
   return to_jsonb(target_exam) || jsonb_build_object(
-    'current_revision_id', created_revision_id,
-    'current_revision_no', created_revision_no,
-    'question_count', generated_count,
-    'created_new_revision', true
+    'current_revision_id', target_exam.current_revision_id,
+    'current_revision_no', (select revision_no from public.real_exam_revisions where id = target_exam.current_revision_id),
+    'question_count', (select count(*) from public.real_exam_question_refs where real_exam_id = target_real_exam_id),
+    'needs_rebuild', true,
+    'created_new_revision', false
   );
 end;
 $$;
