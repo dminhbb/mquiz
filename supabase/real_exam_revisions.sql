@@ -835,14 +835,8 @@ begin
     raise exception 'Mã xác nhận Đợt thi không chính xác.';
   end if;
 
-  -- Loại bỏ toàn bộ nguồn câu hỏi của đợt thi thật này trong real_exam_sources để tránh lock ngân hàng câu hỏi
-  delete from public.real_exam_sources where real_exam_id = target_real_exam_id;
-
-  -- Loại bỏ toàn bộ nguồn câu hỏi trong lịch sử revision (real_exam_revision_sources)
-  delete from public.real_exam_revision_sources 
-  where revision_id in (
-    select id from public.real_exam_revisions where real_exam_id = target_real_exam_id
-  );
+  -- Lưu giữ real_exam_sources và real_exam_revision_sources để audit/copy/khôi phục.
+  -- Việc ẩn chỉ thay đổi trạng thái hiển thị của Đợt thi, không làm mất cấu hình nguồn đề.
 
   update public.real_exams
   set hidden_at = now(),

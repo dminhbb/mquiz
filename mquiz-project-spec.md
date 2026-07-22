@@ -883,3 +883,34 @@ Bảo mật: Dùng `SUPABASE_SERVICE_ROLE_KEY` nội bộ. Validate space publis
 | Ẩn đợt thi thật | ✅ (khi `ended`) | ✅ (khi `ended`) |
 | Khôi phục đợt thi thật | ❌ | ✅ |
 | Xem ngân hàng/đợt thi đã ẩn trong UI | ❌ | ✅ |
+
+---
+
+## 22. Vòng đời lưu trữ và dọn dữ liệu (Archive lifecycle)
+
+> Migration bắt buộc: chạy `supabase/archive_lifecycle.sql` sau `real_exam_revisions.sql` và `add_permanent_hidden.sql`.
+
+### Nguyên tắc
+
+- Trong UI Cloud, thao tác trước đây gọi là **Xóa** được gọi là **Lưu trữ**. Nó không xóa dữ liệu ngay.
+- Ngân hàng và câu hỏi đã lưu trữ vào Thùng rác trong **30 ngày** (`hidden_at`, `purge_after`). Trong thời gian này admin có quyền quản lý Space có thể khôi phục.
+- Chỉ superadmin gọi `purge_expired_question_trash(space_id)` để xóa vĩnh viễn dữ liệu đã quá hạn. Không có thao tác purge tự động.
+- Không cấp quyền `DELETE` trực tiếp cho admin trên `questions` và `question_sets`; mọi thay đổi vòng đời đi qua RPC để kiểm tra quyền, Đợt thi đang diễn ra và thời hạn khôi phục.
+
+### Bảo toàn lịch sử Đợt thi thật
+
+- Mỗi revision có snapshot bất biến tại `real_exam_revision_question_snapshots`: mã câu, thứ tự, loại câu, nội dung, lựa chọn và đáp án.
+- Migration backfill snapshot cho mọi revision hiện có trước khi cho phép purge câu hỏi. Vì vậy dữ liệu lịch sử không phụ thuộc vào hàng `questions` gốc.
+- Lưu trữ Đợt thi (`hide_real_exam`) chỉ cập nhật trạng thái ẩn; **không xóa** `real_exam_sources` hoặc `real_exam_revision_sources`. Cấu hình nguồn đề, revision và kết quả vẫn dùng được cho audit và khôi phục.
+- Học viên không thấy ngân hàng/câu đã lưu trữ trong Thi thử và không truy cập được Đợt thi đã lưu trữ. Các lượt thi và kết quả đã nộp được giữ nguyên.
+
+### Quy tắc purge
+
+1. Chỉ purge câu hỏi `hidden_at IS NOT NULL` và `purge_after <= now()`.
+2. Trước khi xóa câu gốc, hệ thống kiểm tra snapshot revision tương ứng; snapshot thiếu thì không xóa tham chiếu revision đó.
+3. Chỉ purge ngân hàng khi đã quá hạn, không còn câu hỏi và không còn là nguồn của Đợt thi.
+4. Kết quả Thi thật không nằm trong job dọn dữ liệu. Chính sách giữ/xóa kết quả phải được phê duyệt riêng, không dựa trên số lượng bản ghi.
+
+### Local SQLite
+
+Local admin vẫn là hệ thống độc lập. Lệnh xóa câu hỏi của local hiện là hard-delete và không được coi là tương đương với Cloud archive lifecycle. Không dùng local để vận hành dữ liệu có Đợt thi thật cần lưu lịch sử.

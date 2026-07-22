@@ -10,9 +10,11 @@ backend/data/
 !supabase/delete_question_set_cascade.sql
 !supabase/real_exams_v2.sql
 !supabase/real_exam_revisions.sql
+!supabase/archive_lifecycle.sql
 
 # Generated deployment files
 backend/dist/
+dist/
 backend/export/
 *.zip
 

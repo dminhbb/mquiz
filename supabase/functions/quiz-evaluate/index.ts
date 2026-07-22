@@ -18,10 +18,11 @@ Deno.serve(async (request) => {
     if (!space?.published) throw new Error("Space không tồn tại.");
     const examCode = Number(body.exam_code || 0);
     let realExamId = 0;
+    let realExamRevisionId = 0;
     if (examCode) {
       const { data: exam } = await admin
         .from("real_exams")
-        .select("id,manual_running")
+        .select("id,manual_running,current_revision_id")
         .eq("code", examCode)
         .eq("space_id", space.id)
         .is("hidden_at", null)
@@ -29,26 +30,20 @@ Deno.serve(async (request) => {
       if (!exam) throw new Error("Đợt thi thật không tồn tại.");
       if (!exam.manual_running) throw new Error("Đợt thi đã tạm dừng.");
       realExamId = Number(exam.id);
+      realExamRevisionId = Number(exam.current_revision_id || 0);
     }
 
     if (body.action === "check") {
       let question: { id?: number; question_code?: number; correct_json: unknown } | null = null;
       if (realExamId) {
         const questionCode = Number(body.question_id);
-        const { data: reference } = await admin
-          .from("real_exam_question_refs")
-          .select("question_code")
-          .eq("real_exam_id", realExamId)
+        const { data: snapshot } = await admin
+          .from("real_exam_revision_question_snapshots")
+          .select("question_code,correct_json")
+          .eq("revision_id", realExamRevisionId)
           .eq("question_code", questionCode)
-          .single();
-        if (reference) {
-          const response = await admin
-            .from("questions")
-            .select("question_code,correct_json")
-            .eq("question_code", questionCode)
-            .single();
-          question = response.data;
-        }
+          .maybeSingle();
+        question = snapshot;
       } else {
         const response = await admin
           .from("questions")
@@ -70,21 +65,13 @@ Deno.serve(async (request) => {
       let questions: Array<{ id?: number; question_code?: number; correct_json: unknown }> = [];
       let queryError: unknown = null;
       if (realExamId) {
-        const { data: references, error: referenceError } = await admin
-          .from("real_exam_question_refs")
-          .select("question_code")
-          .eq("real_exam_id", realExamId)
+        const response = await admin
+          .from("real_exam_revision_question_snapshots")
+          .select("question_code,correct_json")
+          .eq("revision_id", realExamRevisionId)
           .in("question_code", ids);
-        if (referenceError) throw referenceError;
-        const allowedCodes = (references || []).map((item) => Number(item.question_code));
-        if (allowedCodes.length) {
-          const response = await admin
-            .from("questions")
-            .select("question_code,correct_json")
-            .in("question_code", allowedCodes);
-          questions = response.data || [];
-          queryError = response.error;
-        }
+        questions = response.data || [];
+        queryError = response.error;
       } else {
         const response = await admin
           .from("questions")

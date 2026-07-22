@@ -426,15 +426,8 @@
   }
 
   async function loadQuestionSets(spaceId) {
-    const isSuper = state.profile?.role === "superadmin";
     let setQuery = client.from("question_sets").select("*").eq("space_id", spaceId).order("name");
-    if (!isSuper) {
-      setQuery = setQuery.is("hidden_at", null);
-    }
     let questionQuery = client.from("questions").select("id,type,question_set_id,hidden_at,permanent_hidden").eq("space_id", spaceId);
-    if (!isSuper) {
-      questionQuery = questionQuery.is("hidden_at", null);
-    }
     const [{ data: sets, error: setError }, { data: questions, error: questionError }] = await Promise.all([
       setQuery,
       questionQuery
@@ -449,9 +442,8 @@
     (questions || []).forEach((question) => {
       const key = question.question_set_id || 0;
       const isQuestionActive = question.hidden_at === null;
-      const isRestorableHiddenQuestion = isSuper && 
-                                         question.hidden_at !== null && 
-                                         hiddenSetIds.has(key) && 
+      const isRestorableHiddenQuestion = question.hidden_at !== null &&
+                                         hiddenSetIds.has(key) &&
                                          !question.permanent_hidden;
       if (isQuestionActive || isRestorableHiddenQuestion) {
         const current = counts.get(key) || { total: 0, multi: 0 };
@@ -652,21 +644,21 @@
     }
 
     if (flow.step === 2) {
-      const deleteDisabled = sets.length <= 1;
+      const deleteDisabled = sets.filter((set) => set.hidden_at === null).length <= 1;
       let confirmation = "";
       if (flow.confirmation === "clear") {
         confirmation = `<section class="question-inline-confirmation" aria-labelledby="clearQuestionsTitle">
-          <span class="danger-label">Xác nhận xóa dữ liệu</span>
-          <h3 id="clearQuestionsTitle">Xóa ${activeSet.counts.total} câu hỏi trong “${esc(activeSet.name)}”?</h3>
-          <p>Ngân hàng vẫn được giữ lại. Câu hỏi sẽ bị ẩn khỏi quản trị thông thường nhưng vẫn được lưu để bảo toàn các Đề thi đã tạo.</p>
-          <div class="actions"><button type="button" data-cancel-confirmation>Hủy</button><button type="button" class="danger" id="confirmClearQuestions">Xóa toàn bộ câu hỏi</button></div>
+          <span class="danger-label">Xác nhận lưu trữ</span>
+          <h3 id="clearQuestionsTitle">Lưu trữ ${activeSet.counts.total} câu hỏi trong “${esc(activeSet.name)}”?</h3>
+          <p>Ngân hàng vẫn được giữ lại. Câu hỏi sẽ vào Thùng rác trong 30 ngày; đề thi và kết quả đã tạo vẫn được bảo toàn.</p>
+          <div class="actions"><button type="button" data-cancel-confirmation>Hủy</button><button type="button" class="danger" id="confirmClearQuestions">Lưu trữ câu hỏi</button></div>
         </section>`;
       }
       if (flow.confirmation === "delete-first") {
         confirmation = `<section class="question-inline-confirmation" aria-labelledby="deleteBankFirstTitle">
           <span class="danger-label">Xác nhận 1/2</span>
-          <h3 id="deleteBankFirstTitle">Xóa ngân hàng “${esc(activeSet.name)}”?</h3>
-          <p>Ngân hàng và ${activeSet.counts.total} câu hỏi bên trong sẽ bị ẩn khỏi quản trị thông thường. Dữ liệu vẫn được lưu để bảo toàn các Đề thi đã tạo.</p>
+          <h3 id="deleteBankFirstTitle">Lưu trữ ngân hàng “${esc(activeSet.name)}”?</h3>
+          <p>Ngân hàng và ${activeSet.counts.total} câu hỏi sẽ vào Thùng rác trong 30 ngày. Dữ liệu lịch sử của các Đợt thi đã tạo vẫn được giữ.</p>
           <div class="actions"><button type="button" data-cancel-confirmation>Hủy</button><button type="button" class="danger" id="continueDeleteBank">Tôi hiểu, tiếp tục</button></div>
         </section>`;
       }
@@ -676,7 +668,7 @@
           <h3 id="deleteBankFinalTitle">Nhập chính xác tên ngân hàng để xác nhận</h3>
           <p>Nhập <b>${esc(activeSet.name)}</b> vào ô bên dưới.</p>
           <label for="confirmQuestionSetName">Tên ngân hàng<input id="confirmQuestionSetName" autocomplete="off"></label>
-          <div class="actions"><button type="button" data-cancel-confirmation>Hủy</button><button type="button" class="danger" id="confirmDeleteBank" disabled>Xóa ngân hàng và câu hỏi</button></div>
+          <div class="actions"><button type="button" data-cancel-confirmation>Hủy</button><button type="button" class="danger" id="confirmDeleteBank" disabled>Lưu trữ ngân hàng và câu hỏi</button></div>
         </section>`;
       }
       const isSetHidden = activeSet.hidden_at !== null;
@@ -720,13 +712,13 @@
           </div>
         </section>
         <section class="question-danger-zone" aria-labelledby="questionDangerTitle">
-          <div><span class="danger-label">Khu vực nguy hiểm</span><h3 id="questionDangerTitle">Xóa dữ liệu</h3></div>
+          <div><span class="danger-label">Khu vực lưu trữ</span><h3 id="questionDangerTitle">Đưa vào Thùng rác</h3></div>
           <div class="question-action-list">
             <button type="button" class="question-action-row danger-row" id="clearQuestions" ${activeSet.counts.total && !isCurrentSetLocked ? "" : "disabled"}>
-              <span><b>Xóa toàn bộ câu hỏi trong ngân hàng</b><small>${isCurrentSetLocked ? "Bị khóa trong thời gian Đợt thi thật diễn ra" : `Ẩn câu hỏi, giữ lại ngân hàng “${esc(activeSet.name)}”`}</small></span><span aria-hidden="true">→</span>
+              <span><b>Lưu trữ toàn bộ câu hỏi</b><small>${isCurrentSetLocked ? "Bị khóa trong thời gian Đợt thi thật diễn ra" : `Có thể khôi phục trong 30 ngày; giữ lại ngân hàng “${esc(activeSet.name)}”`}</small></span><span aria-hidden="true">→</span>
             </button>
             <button type="button" class="question-action-row danger-row" id="deleteQuestionSet" ${deleteDisabled || isCurrentSetLocked ? "disabled" : ""}>
-              <span><b>Xóa ngân hàng câu hỏi</b><small>${isCurrentSetLocked ? "Bị khóa trong thời gian Đợt thi thật diễn ra" : deleteDisabled ? "Space phải có ít nhất một ngân hàng" : `Ẩn ngân hàng và ${activeSet.counts.total} câu hỏi bên trong`}</small></span><span aria-hidden="true">→</span>
+              <span><b>Lưu trữ ngân hàng câu hỏi</b><small>${isCurrentSetLocked ? "Bị khóa trong thời gian Đợt thi thật diễn ra" : deleteDisabled ? "Space phải có ít nhất một ngân hàng" : `Có thể khôi phục trong 30 ngày`}</small></span><span aria-hidden="true">→</span>
             </button>
           </div>
         </section>`)}
@@ -746,7 +738,7 @@
         if (flow.confirmation === "clear") {
           panel.querySelector("#confirmClearQuestions").onclick = async (event) => {
             const deleted = await deleteAllQuestions(spaceId, activeSet.id, event.currentTarget, { confirmed: true, preserveDialog: true });
-            if (deleted) await renderNext({ confirmation: "", message: `Đã xóa ${activeSet.counts.total} câu hỏi. Ngân hàng vẫn được giữ lại.` });
+            if (deleted) await renderNext({ confirmation: "", message: `Đã lưu trữ ${activeSet.counts.total} câu hỏi trong 30 ngày. Ngân hàng vẫn được giữ lại.` });
           };
         }
         if (flow.confirmation === "delete-first") {
@@ -765,10 +757,10 @@
                 target_question_set_id: activeSet.id
               });
               if (error) throw error;
-              const deletedCount = Number(data?.deleted_questions ?? activeSet.counts.total);
+              const deletedCount = Number(data?.archived_questions ?? data?.deleted_questions ?? activeSet.counts.total);
               await renderQuestionSettings(panel, spaceId, space, {
                 step: 1,
-                message: `Đã xóa ngân hàng “${activeSet.name}” và ${deletedCount} câu hỏi.`
+                message: `Đã lưu trữ ngân hàng “${activeSet.name}” và ${deletedCount} câu hỏi trong 30 ngày.`
               });
             } catch (error) {
               showDialogError(error.message || "Không thể xóa ngân hàng câu hỏi.");
@@ -1099,8 +1091,8 @@
       if (flow.hideStep === 1) {
         hideConfirmation = `<section class="question-inline-confirmation" aria-labelledby="hideRealExamFirstTitle">
           <span class="danger-label">Xác nhận 1/2</span>
-          <h3 id="hideRealExamFirstTitle">Ẩn “${esc(realExamDisplayName(exam))}”?</h3>
-          <p>Đợt thi sẽ không còn xuất hiện với quản trị viên thông thường. Admin không thể tự hoàn tác; mã, các phiên bản đề và toàn bộ kết quả vẫn được giữ trong database.</p>
+          <h3 id="hideRealExamFirstTitle">Lưu trữ “${esc(realExamDisplayName(exam))}”?</h3>
+          <p>Đợt thi sẽ không còn xuất hiện trong danh sách thường. Mã, cấu hình nguồn, các phiên bản đề và toàn bộ kết quả vẫn được giữ để tra cứu.</p>
           <div class="actions"><button type="button" id="cancelHideRealExam">Hủy</button><button type="button" class="danger" id="continueHideRealExam">Tôi hiểu, tiếp tục</button></div>
         </section>`;
       }
@@ -1108,9 +1100,9 @@
         hideConfirmation = `<section class="question-inline-confirmation" aria-labelledby="hideRealExamFinalTitle">
           <span class="danger-label">Xác nhận 2/2</span>
           <h3 id="hideRealExamFinalTitle">Nhập ID Đợt thi để xác nhận</h3>
-          <p>Nhập chính xác <b>${String(exam.code).padStart(5, "0")}</b>. Sau thao tác này admin không thể khôi phục Đợt thi.</p>
-          <label for="confirmHideRealExamCode">ID Đợt thi<input id="confirmHideRealExamCode" inputmode="numeric" autocomplete="off" maxlength="5"></label>
-          <div class="actions"><button type="button" id="cancelHideRealExam">Hủy</button><button type="button" class="danger" id="confirmHideRealExam" disabled>Ẩn Đợt thi</button></div>
+          <p>Nhập chính xác <b>${String(exam.code).padStart(5, "0")}</b>. Superadmin có thể khôi phục Đợt thi sau này.</p>
+          <label for="confirmHideRealExamCode">Mã Đợt thi<input id="confirmHideRealExamCode" inputmode="numeric" autocomplete="off" maxlength="5"></label>
+          <div class="actions"><button type="button" id="cancelHideRealExam">Hủy</button><button type="button" class="danger" id="confirmHideRealExam" disabled>Lưu trữ Đợt thi</button></div>
         </section>`;
       }
       panel.innerHTML = `<section class="real-exam-wizard settings-pane" aria-labelledby="realExamDetailTitle">
@@ -1144,7 +1136,7 @@
             ${exam.status !== "hidden" ? `<button type="button" class="question-action-row" id="editRealExam"><span><b>Sửa thông tin Đợt thi</b><small>Giữ nguyên ID; thay đổi nguồn hoặc nguyên tắc sẽ tạo phiên bản Đề thi mới</small></span><span>→</span></button>` : ""}
             ${exam.status === "scheduled" ? '<button type="button" class="question-action-row" id="regenerateRealExam"><span><b>Tạo lại Đề thi</b><small>Tạo ngẫu nhiên một Đề thi mới theo cấu hình hiện tại</small></span><span>↻</span></button>' : ""}
             ${exam.status === "ended" ? '<button type="button" class="question-action-row" id="cloneRealExam"><span><b>Copy Đợt thi</b><small>Tạo Đợt thi độc lập với mã 5 số mới</small></span><span>→</span></button>' : ""}
-            ${exam.status === "ended" ? '<button type="button" class="question-action-row danger-row" id="hideRealExam"><span><b>Ẩn Đợt thi</b><small>Giữ mã và toàn bộ kết quả trong database</small></span><span>→</span></button>' : ""}
+            ${exam.status === "ended" ? '<button type="button" class="question-action-row danger-row" id="hideRealExam"><span><b>Lưu trữ Đợt thi</b><small>Giữ mã, nguồn đề và toàn bộ kết quả để tra cứu</small></span><span>→</span></button>' : ""}
             ${exam.status === "hidden" ? '<button type="button" class="question-action-row" id="unhideRealExam"><span><b>Bỏ ẩn Đợt thi</b><small>Hiển thị lại Đợt thi thật này cho tất cả Admin</small></span><span>→</span></button>' : ""}
           </div>
         </section>`}
@@ -1214,7 +1206,7 @@
             confirmation_code: Number(confirmHideCode.value)
           });
           if (error) throw error;
-          await renderRealExamSettings(panel, spaceId, space, { view: "list", message: `Đã ẩn ${realExamDisplayName(exam)}. Kết quả vẫn được giữ.` });
+          await renderRealExamSettings(panel, spaceId, space, { view: "list", message: `Đã lưu trữ ${realExamDisplayName(exam)}. Nguồn đề và kết quả vẫn được giữ.` });
         } catch (error) {
           showDialogError(error.message);
         } finally {
@@ -2080,7 +2072,7 @@
   }
 
   async function deleteAllQuestions(spaceId, questionSetId = null, button = null, options = {}) {
-    if (!options.confirmed && !confirm("Xóa toàn bộ câu hỏi của Bộ câu hỏi đang chọn? Thao tác không thể hoàn tác.")) return false;
+    if (!options.confirmed && !confirm("Lưu trữ toàn bộ câu hỏi của Ngân hàng đang chọn? Có thể khôi phục trong 30 ngày.")) return false;
     if (!questionSetId) {
       showDialogError("Hãy chọn một ngân hàng câu hỏi trước khi xóa.");
       return false;
@@ -2096,7 +2088,7 @@
       }
       if (!options.preserveDialog) {
         closeDialog();
-        setStatus("Đã xóa toàn bộ câu hỏi.");
+        setStatus("Đã lưu trữ toàn bộ câu hỏi trong 30 ngày.");
         await renderSpaces();
       }
       return true;

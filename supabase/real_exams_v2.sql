@@ -733,8 +733,7 @@ begin
     raise exception 'Chỉ có thể ẩn Đợt thi thật đã kết thúc.';
   end if;
 
-  -- Loại bỏ toàn bộ nguồn câu hỏi của đợt thi thật này trong real_exam_sources để tránh lock ngân hàng câu hỏi
-  delete from public.real_exam_sources where real_exam_id = target_real_exam_id;
+  -- Giữ real_exam_sources làm lịch sử cấu hình; ẩn Đợt thi không được xóa audit trail.
 
   update public.real_exams
   set hidden_at = now(), hidden_by = auth.uid(), updated_at = now()
