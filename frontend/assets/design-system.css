@@ -24,6 +24,12 @@
   --mark-warning: #916a28;
   --mark-warning-wash: #f6edda;
 
+  --podium-surface: #fff7cf;
+  --podium-gold: #e4be55;
+  --podium-silver: #d9dde0;
+  --podium-copper: #d79a70;
+  --podium-ink: #171717;
+
   --exam-line: rgba(29, 40, 34, .13);
   --exam-line-soft: rgba(29, 40, 34, .08);
   --exam-line-strong: rgba(29, 40, 34, .22);
@@ -93,6 +99,12 @@
   --mark-wrong-wash: #402321;
   --mark-warning: #d4ae68;
   --mark-warning-wash: #392e1d;
+
+  --podium-surface: #3a331c;
+  --podium-gold: #d7b652;
+  --podium-silver: #b8bec4;
+  --podium-copper: #bd805c;
+  --podium-ink: #171717;
 
   --exam-line: rgba(255, 255, 255, .11);
   --exam-line-soft: rgba(255, 255, 255, .07);

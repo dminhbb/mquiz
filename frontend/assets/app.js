@@ -41,6 +41,9 @@
     leaderboardStatus: "",
     leaderboardRows: [],
     expandedDays: {},
+    leaderboardTab: "students",
+    leaderboardMineOnly: false,
+    leaderboardGroupFilter: "",
     examCode: null,
     entryKind: "space",
     cloudLoadError: "",
@@ -858,29 +861,30 @@
     }
 
     try {
-      const cutoff = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
-      let query = client
-        .from("quiz_attempts")
-        .select("id, space_slug, real_exam_code, student_name, student_name_key, group_name, mode, score, total_questions, correct_count, wrong_count, duration_seconds, started_at, submitted_at")
-        .eq("space_slug", state.slug);
-      const realWindow = getRealExamWindow();
-      if (isRealExamExperience() && realWindow.start && realWindow.end) {
-        query = query
-          .eq("mode", "real")
-          .eq("real_exam_code", Number(state.space.real_exam.code));
+      const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+      let data;
+      let error;
+      if (isRealExamExperience()) {
+        ({ data, error } = await client.rpc("get_real_exam_leaderboard_public", {
+          requested_code: Number(state.space.real_exam.code)
+        }));
       } else {
-        query = query
+        ({ data, error } = await client
+          .from("quiz_attempts")
+          .select("id, space_slug, real_exam_code, student_name, student_name_key, group_name, mode, score, total_questions, correct_count, wrong_count, duration_seconds, started_at, submitted_at")
+          .eq("space_slug", state.slug)
           .eq("mode", "mock")
-          .gte("submitted_at", cutoff);
+          .gte("submitted_at", cutoff)
+          .order("submitted_at", { ascending: false })
+          .limit(1000));
       }
-      const { data, error } = await query.order("submitted_at", { ascending: false }).limit(1000);
       if (error) throw error;
-      state.leaderboardRows = data || [];
+      state.leaderboardRows = Array.isArray(data) ? data : [];
       state.leaderboardStatus = state.leaderboardRows.length
         ? ""
         : isRealExamExperience()
-          ? "Chưa có kết quả Thi thật trong khoảng thời gian đã cấu hình."
-          : "Chưa có kết quả Thi thử.";
+          ? "Chưa có kết quả cho Đợt thi thật này."
+          : "Chưa có kết quả Thi thử trong 30 ngày qua.";
     } catch (error) {
       state.leaderboardRows = [];
       state.leaderboardStatus = `Không tải được bảng xếp hạng: ${error.message || "Lỗi không xác định"}`;
@@ -889,8 +893,15 @@
   }
 
   function renderLeaderboard() {
-    const days = buildLeaderboardDays(state.leaderboardRows).slice(0, 3);
-    const best = days[0]?.rows?.[0];
+    const currentStudentKey = studentNameKey(state.studentName);
+    const rows = filteredLeaderboardRows();
+    const days = buildLeaderboardDays(rows).slice(0, 3);
+    const studentRankings = bestAttemptsByStudent(rows);
+    const allStudentRankings = bestAttemptsByStudent(state.leaderboardRows);
+    const podiumStudents = allStudentRankings.slice(0, 3);
+    const groupRankings = buildGroupRankings(state.leaderboardRows);
+    const groupOptions = leaderboardGroupOptions();
+    const best = allStudentRankings[0];
     renderShell(`<section class="leaderboard-shell">
       <aside class="setup-sidebar">
         <div class="setup-logo"><span>mq</span><b>mquiz</b></div>
@@ -908,17 +919,32 @@
           <div>
             <p class="setup-kicker">Trung tâm Hỗ trợ Tín dụng</p>
             <h1>Bảng xếp hạng</h1>
-            <p class="muted">${esc(state.space?.name || "")} · ${isRealExamExperience() ? "Kết quả trong kỳ Thi thật" : "Kết quả Thi thử trong 3 ngày gần nhất"}</p>
+            <p class="muted">${esc(state.space?.name || "")} · ${isRealExamExperience() ? `Đợt thi thật #${esc(state.space?.real_exam?.code || "")}` : "Kết quả Thi thử trong 30 ngày qua"}</p>
           </div>
           <button class="primary" id="backTopBtn">Quay lại</button>
         </header>
         <div class="setup-summary">
-          <div><span>Số ngày có dữ liệu</span><b>${days.length}</b></div>
-          <div><span>Lượt thi hiển thị</span><b>${days.reduce((sum, day) => sum + day.rows.length, 0)}</b></div>
-          <div><span>Dẫn đầu gần nhất</span><b>${best ? best.score : "-"}</b></div>
+          <div><span>Tổng số lượt thi</span><b>${state.leaderboardRows.length}</b></div>
+          <div><span>Tổng số người thi</span><b>${allStudentRankings.length}</b></div>
+          <div><span>Điểm cao nhất</span><b>${best ? formatScore(best.score) : "-"}</b></div>
+        </div>
+        ${renderLeaderboardPodiums(podiumStudents, groupRankings)}
+        <div class="leaderboard-controls" aria-label="Chế độ và bộ lọc bảng xếp hạng">
+          <div class="leaderboard-tabs" role="tablist" aria-label="Loại xếp hạng">
+            <button type="button" role="tab" id="leaderboardStudentsTab" aria-selected="${state.leaderboardTab === "students"}" class="${state.leaderboardTab === "students" ? "active" : ""}" data-leaderboard-tab="students">Xếp hạng Học viên</button>
+            <button type="button" role="tab" id="leaderboardGroupsTab" aria-selected="${state.leaderboardTab === "groups"}" class="${state.leaderboardTab === "groups" ? "active" : ""}" data-leaderboard-tab="groups">Xếp hạng Nhóm</button>
+          </div>
+          ${state.leaderboardTab === "students" ? `<div class="leaderboard-filters">
+            <button type="button" class="ghost leaderboard-mine-filter ${state.leaderboardMineOnly ? "active" : ""}" id="leaderboardMineFilter" aria-pressed="${state.leaderboardMineOnly}" ${currentStudentKey ? "" : "disabled"}>Kết quả của tôi</button>
+            <label class="leaderboard-group-filter"><span>Nhóm</span><select id="leaderboardGroupFilter"><option value="">Tất cả nhóm</option>${groupOptions.map((group) => `<option value="${esc(group)}" ${state.leaderboardGroupFilter === group ? "selected" : ""}>${esc(group)}</option>`).join("")}</select></label>
+          </div>` : ""}
         </div>
         ${state.leaderboardStatus ? `<div class="status-panel">${esc(state.leaderboardStatus)}</div>` : ""}
-        <div class="grid leaderboard-days">${days.map(renderLeaderboardDay).join("")}</div>
+        ${state.leaderboardTab === "groups"
+          ? renderGroupLeaderboard(groupRankings)
+          : isRealExamExperience()
+            ? renderRealStudentLeaderboard(studentRankings)
+            : `<div class="grid leaderboard-days">${days.map(renderLeaderboardDay).join("") || (state.leaderboardStatus ? "" : '<div class="status-panel">Không có kết quả phù hợp với bộ lọc đã chọn.</div>')}</div>`}
       </main>
     </section>`);
     document.getElementById("backBtn").onclick = () => {
@@ -931,6 +957,22 @@
       renderSetup();
     };
     document.getElementById("backTopBtn").onclick = document.getElementById("backBtn").onclick;
+    document.querySelectorAll("[data-leaderboard-tab]").forEach((button) => {
+      button.onclick = () => {
+        state.leaderboardTab = button.dataset.leaderboardTab;
+        renderLeaderboard();
+      };
+    });
+    const mineFilter = document.getElementById("leaderboardMineFilter");
+    if (mineFilter) mineFilter.onclick = () => {
+      state.leaderboardMineOnly = !state.leaderboardMineOnly;
+      renderLeaderboard();
+    };
+    const groupFilter = document.getElementById("leaderboardGroupFilter");
+    if (groupFilter) groupFilter.onchange = (event) => {
+      state.leaderboardGroupFilter = event.target.value;
+      renderLeaderboard();
+    };
     document.querySelectorAll("[data-expand-day]").forEach((button) => {
       button.onclick = () => {
         const day = button.dataset.expandDay;
@@ -938,6 +980,98 @@
         renderLeaderboard();
       };
     });
+    const realStudentExpand = document.getElementById("realStudentLeaderboardExpand");
+    if (realStudentExpand) realStudentExpand.onclick = () => {
+      state.expandedDays.realStudentLeaderboard = !state.expandedDays.realStudentLeaderboard;
+      renderLeaderboard();
+    };
+  }
+
+  function filteredLeaderboardRows() {
+    const selectedGroup = state.leaderboardGroupFilter;
+    const studentKey = studentNameKey(state.studentName);
+    return (state.leaderboardRows || []).filter((row) => {
+      if (selectedGroup && String(row.group_name || "") !== selectedGroup) return false;
+      return !state.leaderboardMineOnly || (Boolean(studentKey) && (row.student_name_key || studentNameKey(row.student_name)) === studentKey);
+    });
+  }
+
+  function leaderboardGroupOptions() {
+    return [...new Set((state.leaderboardRows || []).map((row) => String(row.group_name || "").trim()).filter(Boolean))]
+      .sort((a, b) => a.localeCompare(b, "vi"));
+  }
+
+  function bestAttemptsByStudent(rows) {
+    const bestByStudent = new Map();
+    (rows || []).forEach((row) => {
+      const key = row.student_name_key || studentNameKey(row.student_name);
+      if (!key) return;
+      const current = bestByStudent.get(key);
+      if (!current || compareAttempt(row, current) < 0) bestByStudent.set(key, row);
+    });
+    return [...bestByStudent.values()].sort(compareAttempt);
+  }
+
+  function buildGroupRankings(rows) {
+    const groups = new Map();
+    bestAttemptsByStudent(rows).forEach((row) => {
+      const groupName = String(row.group_name || "").trim() || "Chưa phân nhóm";
+      if (!groups.has(groupName)) groups.set(groupName, []);
+      groups.get(groupName).push(row);
+    });
+    return [...groups.entries()].map(([groupName, members]) => ({
+      groupName,
+      memberCount: members.length,
+      averageScore: members.reduce((sum, row) => sum + Number(row.score || 0), 0) / members.length,
+      totalCorrect: members.reduce((sum, row) => sum + Number(row.correct_count || 0), 0)
+    })).sort((a, b) => b.averageScore - a.averageScore || b.memberCount - a.memberCount || a.groupName.localeCompare(b.groupName, "vi"));
+  }
+
+  function renderLeaderboardPodiums(students, groups) {
+    return `<section class="leaderboard-podiums" aria-label="Vinh danh dẫn đầu">
+      ${renderPodium("Học viên dẫn đầu", students, (row) => row.student_name, (row) => `${Number(row.score || 0)} điểm`)}
+      ${renderPodium("Nhóm dẫn đầu", groups, (row) => row.groupName, (row) => `${formatScore(row.averageScore)} điểm TB`)}
+    </section>`;
+  }
+
+  function renderPodium(title, rows, getName, getValue) {
+    const places = [1, 0, 2];
+    const medals = ["🥇", "🥈", "🥉"];
+    return `<section class="leaderboard-podium" aria-label="${esc(title)}"><div class="podium-heading"><p>${esc(title)}</p><span>${isRealExamExperience() ? "Theo Đợt thi" : "30 ngày"}</span></div>
+      <div class="podium-stage">${places.map((index) => {
+        const row = rows[index];
+        const place = index + 1;
+        return `<div class="podium-place podium-place-${place}">${row ? `<span class="podium-medal" aria-hidden="true">${medals[index]}</span><b title="${esc(getName(row))}">${esc(getName(row))}</b><small>${esc(getValue(row))}</small><i>${place}</i>` : ""}</div>`;
+      }).join("")}</div>
+    </section>`;
+  }
+
+  function renderGroupLeaderboard(groups) {
+    if (!groups.length) return state.leaderboardStatus ? "" : '<div class="status-panel">Chưa có Nhóm nào đủ dữ liệu để xếp hạng.</div>';
+    return `<section class="panel leaderboard-group-panel" role="tabpanel" aria-labelledby="leaderboardGroupsTab">
+      <div class="space-between"><div><h2>Xếp hạng Nhóm</h2><p class="muted">Điểm trung bình tính trên kết quả cao nhất của mỗi học viên.</p></div><span class="leaderboard-range-note">${isRealExamExperience() ? "Toàn bộ Đợt thi" : "30 ngày gần nhất"}</span></div>
+      <div class="leaderboard-group-table"><div class="leaderboard-group-row leaderboard-group-head"><span>#</span><span>Nhóm</span><span>Học viên</span><span>Tổng câu đúng</span><span>Điểm trung bình</span></div>
+        ${groups.map((group, index) => `<div class="leaderboard-group-row ${index < 3 ? "top-rank" : ""}"><span class="rank">${index + 1}</span><span><b>${esc(group.groupName)}</b></span><span>${group.memberCount}</span><span>${group.totalCorrect}</span><span><b>${formatScore(group.averageScore)}</b></span></div>`).join("")}
+      </div>
+    </section>`;
+  }
+
+  function renderRealStudentLeaderboard(rows) {
+    if (!rows.length) return state.leaderboardStatus ? "" : '<div class="status-panel">Không có kết quả phù hợp với bộ lọc đã chọn.</div>';
+    const expanded = Boolean(state.expandedDays.realStudentLeaderboard);
+    const visibleRows = expanded ? rows : rows.slice(0, 15);
+    return `<section class="panel leaderboard-day" role="tabpanel" aria-labelledby="leaderboardStudentsTab">
+      <div class="space-between"><div><h2>Xếp hạng Học viên</h2><p class="muted">Mỗi học viên chỉ lấy kết quả cao nhất trong Đợt thi.</p></div>
+        ${rows.length > 15 ? `<button class="ghost" id="realStudentLeaderboardExpand">${expanded ? "Thu gọn" : "Xem toàn bộ"}</button>` : ""}
+      </div>
+      <div class="leaderboard-table"><div class="leaderboard-row leaderboard-head"><span>#</span><span>Tên học viên</span><span>Group</span><span>Chế độ</span><span>Thời gian làm bài</span><span>Giờ làm bài</span><span>Đúng</span><span>Sai</span><span>Tổng</span><span>Điểm</span></div>
+        ${visibleRows.map((row, index) => renderLeaderboardRow(row, index)).join("")}
+      </div>
+    </section>`;
+  }
+
+  function formatScore(value) {
+    return Number(value || 0).toLocaleString("vi-VN", { maximumFractionDigits: 0 });
   }
 
   function buildLeaderboardDays(rows) {

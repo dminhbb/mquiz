@@ -595,12 +595,19 @@ submitQuiz()
 
 ## 12. Bảng Xếp Hạng (Leaderboard)
 
-- **Thi thử**: Lấy quiz_attempts 7 ngày gần nhất, `mode = 'mock'`, theo `space_slug`.
-- **Thi thật**: Lấy theo `real_exam_code` + `mode = 'real'`.
-- Dữ liệu nhóm theo ngày (`submitted_at`), mỗi học viên chỉ giữ lại kết quả **cao nhất trong ngày**.
-- Hiển thị tối đa 15 hàng/ngày (có nút "Xem toàn bộ" để mở rộng).
-- Xếp hạng theo điểm số giảm dần, top 3 có huy chương ★★★/★★/★.
-- Giới hạn 1000 dòng mỗi query, tối đa 3 ngày có dữ liệu.
+- Bảng có hai tab: **Xếp hạng Học viên** và **Xếp hạng Nhóm**. Cả hai tab dùng chung dữ liệu đã tải, không làm lộ đáp án hay nội dung câu hỏi.
+- Ba ô tóm tắt đầu bảng lần lượt là **Tổng số lượt thi**, **Tổng số người thi** (mỗi `student_name_key` tính một lần) và **Điểm cao nhất**.
+- Hai khung podium có nền vàng nhạt. Bục hạng 1/vàng, 2/bạc và 3/đồng dùng chữ đen và biểu tượng huy chương tương ứng; khi hạng chưa có dữ liệu thì toàn bộ nội dung, gồm cả huy chương, trong bục đó để trống.
+- **Thi thử**: Lấy `quiz_attempts` trong 30 ngày gần nhất, `mode = 'mock'`, theo `space_slug`. Phần vinh danh đầu trang hiển thị hai bục top 3 Học viên và top 3 Nhóm của cùng cửa sổ 30 ngày.
+- **Thi thật**: Chỉ xem từ link của Đợt thi, lấy theo `real_exam_code` + `mode = 'real'`, không phụ thuộc thời điểm Start/End/Stop. Link Đợt thi đã lưu trữ không truy cập được nên không hiển thị bảng xếp hạng.
+- Dữ liệu leaderboard Thi thật được đọc qua RPC `get_real_exam_leaderboard_public(code)`, không dùng trực tiếp policy đọc kết quả 7 ngày của `quiz_attempts`. RPC chỉ trả các cột phục vụ xếp hạng, chỉ cho Đợt chưa archived, và đọc kết quả bằng `real_exam_id` để tương thích dữ liệu lịch sử.
+- Migration bắt buộc: chạy `supabase/real_exam_public_leaderboard.sql` trước khi deploy frontend có gọi RPC này.
+- Với **Thi thử**, tab Học viên vẫn nhóm theo ngày `submitted_at`; một học viên chỉ giữ kết quả **cao nhất trong ngày**. Hiển thị tối đa 15 hàng/ngày, có nút "Xem toàn bộ"; danh sách hiển thị tối đa 3 ngày mới nhất để giữ màn hình gọn.
+- Với **Thi thật**, tab Học viên so sánh **một kết quả cao nhất duy nhất của mỗi học viên** trong toàn bộ Đợt thi; học viên không xuất hiện lặp lại theo ngày. Hiển thị tối đa 15 hàng trước khi mở rộng.
+- Tab Học viên có nút **"Kết quả của tôi"**: lọc theo `student_name_key` của học viên đang dùng ứng dụng và disabled khi chưa có tên; dropdown Nhóm lọc kết quả theo `group_name`.
+- Tab Nhóm xếp hạng giảm dần theo **điểm trung bình của kết quả tốt nhất của từng học viên** trong Nhóm, trong phạm vi 30 ngày (Thi thử) hoặc toàn bộ Đợt thi (Thi thật). Cách này không để một học viên thi nhiều lần làm lệch điểm trung bình Nhóm. Hai bục vinh danh Học viên/Nhóm dùng chính quy tắc này: Học viên lấy một kết quả cao nhất; Nhóm tính trung bình từ một kết quả cao nhất của từng học viên.
+- Khi các Nhóm cùng điểm trung bình, Nhóm có nhiều học viên hơn được ưu tiên, rồi sắp xếp theo tên để kết quả ổn định. Số điểm dùng hiển thị số nguyên.
+- Giới hạn truy vấn hiện tại là 1000 dòng mỗi lần tải.
 - RLS policy: chỉ đọc các attempt `submitted_at >= now() - interval '7 days'`.
 
 ---
@@ -892,7 +899,7 @@ Bảo mật: Dùng `SUPABASE_SERVICE_ROLE_KEY` nội bộ. Validate space publis
 
 ### Nguyên tắc
 
-- Trong UI Cloud, thao tác trước đây gọi là **Xóa** được gọi là **Lưu trữ**. Nó không xóa dữ liệu ngay.
+- Trong UI Cloud, thao tác archive được ghi nhãn là **Xóa** để gần gũi với người dùng. Nó không xóa dữ liệu ngay.
 - Ngân hàng và câu hỏi đã lưu trữ vào Thùng rác trong **30 ngày** (`hidden_at`, `purge_after`). Trong thời gian này admin có quyền quản lý Space có thể khôi phục.
 - Chỉ superadmin gọi `purge_expired_question_trash(space_id)` để xóa vĩnh viễn dữ liệu đã quá hạn. Không có thao tác purge tự động.
 - Không cấp quyền `DELETE` trực tiếp cho admin trên `questions` và `question_sets`; mọi thay đổi vòng đời đi qua RPC để kiểm tra quyền, Đợt thi đang diễn ra và thời hạn khôi phục.

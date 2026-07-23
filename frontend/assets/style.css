@@ -2485,6 +2485,237 @@ select {
   background: var(--pen-blue-wash);
 }
 
+.leaderboard-podiums {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.leaderboard-podium {
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid var(--exam-line-soft);
+  border-radius: var(--radius-panel);
+  background: var(--podium-surface);
+}
+
+.podium-heading,
+.leaderboard-controls,
+.leaderboard-filters {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.podium-heading p {
+  margin: 0;
+  color: var(--exam-ink);
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.podium-heading span,
+.leaderboard-range-note {
+  color: var(--exam-ink-tertiary);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.podium-stage {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: end;
+  gap: 6px;
+  min-height: 140px;
+  margin-top: 12px;
+}
+
+.podium-place {
+  position: relative;
+  display: grid;
+  min-width: 0;
+  min-height: 84px;
+  align-content: start;
+  justify-items: center;
+  gap: 2px;
+  padding: 8px 6px 30px;
+  border: 1px solid var(--exam-line-soft);
+  border-radius: var(--radius-control) var(--radius-control) 0 0;
+  background: var(--exam-inset);
+  text-align: center;
+}
+
+.podium-place-1 { min-height: 122px; background: var(--podium-gold); }
+.podium-place-2 { min-height: 102px; background: var(--podium-silver); }
+.podium-place-3 { min-height: 88px; background: var(--podium-copper); }
+
+.podium-medal {
+  font-size: 20px;
+  line-height: 1;
+}
+
+.podium-place b,
+.podium-place small {
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.podium-place b {
+  color: var(--podium-ink);
+  font-size: 12px;
+}
+
+.podium-place small {
+  color: var(--podium-ink);
+  font-size: 10px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.podium-place i {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  display: grid;
+  height: 24px;
+  place-items: center;
+  background: transparent;
+  color: var(--podium-ink);
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.leaderboard-controls {
+  flex-wrap: wrap;
+  padding: 12px;
+  border: 1px solid var(--exam-line-soft);
+  border-radius: var(--radius-panel);
+  background: var(--exam-paper-raised);
+}
+
+.leaderboard-tabs {
+  display: inline-grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  min-height: 44px;
+  padding: 3px;
+  border: 1px solid var(--exam-line);
+  border-radius: calc(var(--radius-control) + 2px);
+  background: var(--exam-inset);
+}
+
+.leaderboard-tabs button {
+  min-height: 36px;
+  border-color: transparent;
+  background: transparent;
+  color: var(--exam-ink-secondary);
+  font-size: 13px;
+}
+
+.leaderboard-tabs button.active {
+  border-color: var(--exam-line-soft);
+  background: var(--exam-sheet);
+  color: var(--pen-blue-strong);
+  box-shadow: var(--exam-shadow-soft);
+}
+
+.leaderboard-mine-filter.active {
+  border-color: var(--pen-blue);
+  background: var(--pen-blue-wash);
+  color: var(--pen-blue-strong);
+}
+
+.leaderboard-group-filter {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--exam-ink-secondary);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.leaderboard-group-filter select {
+  min-width: 168px;
+  min-height: 40px;
+  padding-inline: 10px;
+  font-size: 13px;
+}
+
+.leaderboard-group-panel {
+  display: grid;
+  gap: 16px;
+  padding: 20px;
+}
+
+.leaderboard-group-panel h2 {
+  margin: 0 0 4px;
+  color: var(--exam-ink);
+  font-size: 20px;
+}
+
+.leaderboard-group-panel .muted { margin: 0; }
+
+.leaderboard-group-table {
+  display: grid;
+  gap: 6px;
+  overflow-x: auto;
+}
+
+.leaderboard-group-row {
+  display: grid;
+  grid-template-columns: 44px minmax(180px, 1fr) 110px 140px 150px;
+  align-items: center;
+  gap: 10px;
+  min-width: 620px;
+  padding: 11px 12px;
+  border: 1px solid var(--exam-line-soft);
+  border-radius: var(--radius-control);
+  background: var(--exam-paper-raised);
+  color: var(--exam-ink);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.leaderboard-group-head {
+  border-color: transparent;
+  background: transparent;
+  color: var(--exam-ink-tertiary);
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.leaderboard-group-row.top-rank {
+  background: var(--pen-blue-wash);
+}
+
+@media (max-width: 700px) {
+  .leaderboard-podiums { grid-template-columns: 1fr; }
+
+  .leaderboard-controls,
+  .leaderboard-filters {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .leaderboard-tabs { width: 100%; }
+
+  .leaderboard-tabs button { padding-inline: 8px; }
+
+  .leaderboard-group-filter {
+    justify-content: space-between;
+  }
+
+  .leaderboard-group-filter select { flex: 1; min-width: 0; }
+
+  .leaderboard-mine-filter { width: 100%; }
+}
+
 @media (max-width: 900px) {
   .setup-dashboard,
   .leaderboard-shell {
