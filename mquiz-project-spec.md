@@ -113,7 +113,7 @@ Lưu `space_slug`, học viên, nhóm, `mode`, phương pháp chấm, điểm v�
 - `correct_json` không được cấp quyền đọc cho anon. Chỉ Edge Function `quiz-evaluate` dùng service-role nội bộ truy cập đáp án.
 - Không được đưa đáp án, service-role key, hay cơ chế hash đáp án thay thế vào client.
 
-Các RPC quan trọng: `get_space_public_status`, `get_real_exam_public`, `get_real_exam_attempt_count`, `clear_question_set_questions`, `delete_question_set_cascade`, `unhide_question_set`, `hide_real_exam`, `unhide_real_exam`, `list_real_exams`, `get_real_exam_leaderboard_public`.
+Các RPC quan trọng: `get_space_public_status`, `get_real_exam_public`, `get_real_exam_attempt_count`, `clear_question_set_questions`, `delete_question_set_cascade`, `archive_question`, `unhide_question_set`, `hide_real_exam`, `unhide_real_exam`, `list_real_exams`, `get_real_exam_leaderboard_public`.
 
 ## 6. Chế độ làm bài
 
@@ -158,7 +158,18 @@ Các RPC quan trọng: `get_space_public_status`, `get_real_exam_public`, `get_r
 
 Việc import và quản lý được thực hiện ở Cloud Admin qua Supabase, không qua server upload cục bộ.
 
+### Quản lý từng câu hỏi
+
+- Cloud Admin hiển thị tối đa 20 câu mỗi trang trong một ngân hàng; nội dung dài hơn 256 ký tự được rút gọn trên danh sách.
+- Chọn nội dung câu để xem popup gồm toàn bộ nội dung, đáp án và dấu hiệu đáp án đúng.
+- Thêm mới, sửa và copy dùng chung form: nội dung plain text có xuống dòng, tối đa năm đáp án A–E, chọn loại `single` hoặc `multi`, và đánh dấu đáp án đúng.
+- Danh sách có biểu tượng phân biệt `single`/`multi`; subtitle hiển thị question code và số đáp án, không in đậm nội dung câu hỏi.
+- “Thêm nhiều câu hỏi” nhận free text theo từng cụm cách nhau bằng dòng trống: dòng đầu là câu hỏi (dùng `<BR>` cho xuống dòng), 2–5 dòng sau là đáp án, và `*` ở cuối dòng đánh dấu đáp án đúng. UI đánh số dòng, báo lỗi đúng dòng và chỉ xác nhận danh sách hợp lệ trước khi insert atomically. Nút AI Prompt mở màn hình thiết lập chủ đề, đối tượng/trình độ học viên, số lượng, số câu nhiều đáp án, mức độ khó và số câu dài; các trường tùy chọn bỏ trống không được đưa vào prompt.
+- Danh sách hỗ trợ chọn nhiều câu hỏi bằng checkbox và xác nhận rõ danh sách trước khi gọi RPC `archive_questions`; xóa một câu gọi `archive_question`. Câu vào Thùng rác trong 30 ngày; không hard-delete. Thao tác thay đổi/xóa bị khóa khi ngân hàng là nguồn của Đợt thi thật đang diễn ra. Câu đã snapshot không thể sửa nội dung; hãy copy để tạo câu thay thế.
+
 ## 9. Luồng người thi
+
+- Trên màn hình hẹp (điện thoại), giao diện làm bài chuyển sang bố cục một cột tối giản: chỉ giữ tiến độ, thời gian, câu hỏi, đáp án và thao tác điều hướng. Bảng xếp hạng ẩn bục vinh danh và các ô thống kê; chỉ giữ danh sách hạng, học viên/nhóm và điểm.
 
 ```text
 Boot → xác định route
@@ -216,6 +227,9 @@ Setup → tên + nhóm + Set + cấu hình được phép → startQuiz()
 - Light/Dark mode, responsive, toast tự ẩn, native dialog, progress bar và score ring.
 - Tất cả màu và bề mặt giao diện dùng token trong `design-system.css`.
 - Frontend và Cloud Admin đều là Vanilla JS; re-render bằng `innerHTML`, không dùng React/Vue/Angular.
+- Popup cấu hình Space có nút X và điều hướng ‹/› cố định; khi có thay đổi chưa lưu, chuyển màn hình, đóng bằng X hoặc Escape đều yêu cầu xác nhận bỏ thay đổi.
+- Danh sách Đợt thi thật phản hồi ngay khi đổi trạng thái lọc; tìm keyword dùng nút `Tìm kiếm`. Tab quản trị retention có nhãn `Thiết lập Database`.
+- Danh sách Admin có thể cấp lại mật khẩu qua Edge Function `admin-users`: form tạo sẵn mật khẩu 8 ký tự có chữ hoa, số và ký tự đặc biệt, đồng thời cho phép hiện/ẩn trước khi Update. Triển khai thay đổi này bằng `npm run deploy:admin-users`.
 
 ## 15. Phiên bản và phát hành
 

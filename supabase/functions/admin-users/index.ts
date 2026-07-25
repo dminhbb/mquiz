@@ -68,6 +68,18 @@ Deno.serve(async (request) => {
       return json({ ok: true });
     }
 
+    if (body.action === "reset_password") {
+      const id = String(body.id || "");
+      const password = String(body.password || "");
+      if (!id) throw new Error("Thiếu tài khoản cần cấp lại mật khẩu.");
+      if (password.length < 8 || !/[A-Z]/.test(password) || !/\d/.test(password) || !/[^A-Za-z0-9]/.test(password)) {
+        throw new Error("Mật khẩu cần ít nhất 8 ký tự, gồm chữ hoa, số và ký tự đặc biệt.");
+      }
+      const { error } = await adminClient.auth.admin.updateUserById(id, { password });
+      if (error) throw error;
+      return json({ ok: true });
+    }
+
     throw new Error("Unsupported action");
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";

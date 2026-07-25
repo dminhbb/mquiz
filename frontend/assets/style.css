@@ -2928,3 +2928,88 @@ body:has(.shell) {
     bottom: 12px;
   }
 }
+
+/* Mobile learner mode: one question, its choices, and the next decision. */
+@media (max-width: 700px) {
+  .shell main:has(.quiz-panel) .screen {
+    width: 100%;
+    min-height: 100dvh;
+    padding: 12px 12px 24px;
+    gap: 12px;
+  }
+
+  .shell main:has(.quiz-panel) .screen > .space-between:first-child {
+    flex-direction: row;
+    align-items: center;
+  }
+
+  .shell main:has(.quiz-panel) .screen > .space-between:first-child .muted { display: none; }
+  .shell main:has(.quiz-panel) .timer { min-width: 0; font-size: 18px; }
+  .shell main:has(.quiz-panel) .progress { height: 5px; }
+  .shell main:has(.quiz-panel) .quiz-panel {
+    gap: 14px;
+    padding: 4px 0 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .shell main:has(.quiz-panel) .type-pill { min-height: 28px; padding: 3px 8px; font-size: 11px; }
+  .shell main:has(.quiz-panel) .quiz-panel .large-question { font-size: clamp(21px, 6vw, 26px); line-height: 1.35; }
+  .shell main:has(.quiz-panel) .options-grid { gap: 8px; }
+  .shell main:has(.quiz-panel) .options-grid .choice { min-height: 52px; padding: 10px 12px; }
+  .shell main:has(.quiz-panel) .question-footer { position: sticky; bottom: 0; gap: 8px; padding: 10px 0 env(safe-area-inset-bottom); background: var(--student-paper); }
+  .shell main:has(.quiz-panel) .question-footer .actions { display: grid; grid-template-columns: minmax(0, .72fr) minmax(0, 1.28fr); gap: 8px; }
+  .shell main:has(.quiz-panel) .question-footer .actions button { width: 100%; }
+  .shell main:has(.quiz-panel) .question-footer #finishBtn { min-height: 34px; padding-block: 5px; font-size: 12px; }
+
+  /* The mobile leaderboard is a concise directory, not a dashboard. */
+  .leaderboard-shell .setup-summary,
+  .leaderboard-shell .leaderboard-podiums { display: none; }
+  .leaderboard-shell .leaderboard-workspace { gap: 14px; padding: 16px 12px 28px; }
+  .leaderboard-shell .leaderboard-topbar { align-items: center; padding-bottom: 12px; }
+  .leaderboard-shell .leaderboard-topbar .setup-kicker,
+  .leaderboard-shell .leaderboard-topbar .muted { display: none; }
+  .leaderboard-shell .leaderboard-topbar h1 { margin: 0; font-size: 23px; }
+  .leaderboard-shell .leaderboard-topbar .primary { min-height: 38px; padding-inline: 12px; font-size: 12px; }
+  .leaderboard-shell .leaderboard-day,
+  .leaderboard-shell .leaderboard-group-panel { gap: 10px; padding: 12px; border-radius: var(--radius-control); }
+  .leaderboard-shell .leaderboard-day .space-between,
+  .leaderboard-shell .leaderboard-group-panel .space-between { flex-direction: row; align-items: center; }
+  .leaderboard-shell .leaderboard-day h2,
+  .leaderboard-shell .leaderboard-group-panel h2 { margin: 0; font-size: 16px; }
+  .leaderboard-shell .leaderboard-day .muted,
+  .leaderboard-shell .leaderboard-group-panel .muted,
+  .leaderboard-shell .leaderboard-range-note { display: none; }
+  .leaderboard-shell .leaderboard-table,
+  .leaderboard-shell .leaderboard-group-table { overflow: visible; gap: 4px; }
+  .leaderboard-shell .leaderboard-head,
+  .leaderboard-shell .leaderboard-group-head { display: none; }
+  .leaderboard-shell .leaderboard-row:not(.leaderboard-head) {
+    grid-template-columns: 32px minmax(0, 1fr) minmax(0, .78fr) auto;
+    gap: 8px;
+    min-width: 0;
+    padding: 10px 8px;
+    border-radius: var(--radius-control);
+    font-size: 13px;
+  }
+  .leaderboard-shell .leaderboard-row:not(.leaderboard-head) > span:nth-child(4),
+  .leaderboard-shell .leaderboard-row:not(.leaderboard-head) > span:nth-child(5),
+  .leaderboard-shell .leaderboard-row:not(.leaderboard-head) > span:nth-child(6),
+  .leaderboard-shell .leaderboard-row:not(.leaderboard-head) > span:nth-child(7),
+  .leaderboard-shell .leaderboard-row:not(.leaderboard-head) > span:nth-child(8),
+  .leaderboard-shell .leaderboard-row:not(.leaderboard-head) > span:nth-child(9) { display: none; }
+  .leaderboard-shell .leaderboard-row:not(.leaderboard-head) > span:nth-child(10) { font-weight: 800; white-space: nowrap; }
+  .leaderboard-shell .leaderboard-group-row:not(.leaderboard-group-head) {
+    grid-template-columns: 32px minmax(0, 1fr) auto;
+    gap: 8px;
+    min-width: 0;
+    padding: 10px 8px;
+    border-radius: var(--radius-control);
+    font-size: 13px;
+  }
+  .leaderboard-shell .leaderboard-group-row:not(.leaderboard-group-head) > span:nth-child(3),
+  .leaderboard-shell .leaderboard-group-row:not(.leaderboard-group-head) > span:nth-child(4) { display: none; }
+  .leaderboard-shell .leaderboard-group-row:not(.leaderboard-group-head) > span:nth-child(5) { font-weight: 800; white-space: nowrap; }
+}

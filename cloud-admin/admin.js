@@ -9,6 +9,8 @@
   const config = window.__SQ_SUPABASE__ || {};
   const client = window.supabase?.createClient(config.url, config.anonKey);
   let dialogErrorTimer = null;
+  let activeSpaceSettings = null;
+  let spaceSettingsDirty = false;
   const state = {
     session: null,
     profile: null,
@@ -242,7 +244,7 @@
     <section class="panel table-wrap spaces-table"><table>
       <thead><tr><th>Space</th><th>Câu hỏi</th><th>Thi thật</th><th>Trạng thái</th><th></th></tr></thead>
       <tbody>${state.spaces.map((space) => `<tr>
-        <td><b>${esc(space.name)}</b><br><span class="muted">/${esc(space.slug)}</span></td>
+        <td><button type="button" class="space-name-button" data-space-settings="${space.id}" aria-label="Mở cấu hình ${esc(space.name)}"><b>${esc(space.name)}</b><span>/${esc(space.slug)}</span></button></td>
         <td><span class="table-number">${space.counts.total}</span><br><span class="muted">${space.counts.multi} câu nhiều đáp án</span></td>
         <td><span class="badge ${space.active_real_exam ? "on" : ""}">${space.active_real_exam ? "Đang có Thi thật" : "Không có đợt đang thi"}</span>${space.active_real_exam ? `<br><span class="muted">${esc(space.active_real_exam.name)}</span>` : ""}</td>
         <td><span class="status-pill ${space.published ? "published" : "draft"}">${space.published ? "Đã xuất bản" : "Bản nháp"}</span></td>
@@ -281,6 +283,59 @@
     dialog.className = "";
   }
 
+  function markSpaceSettingsClean() {
+    spaceSettingsDirty = false;
+  }
+
+  function confirmSpaceSettingsDiscard(action, onConfirm) {
+    if (!spaceSettingsDirty) return onConfirm();
+    const confirmation = document.createElement("dialog");
+    confirmation.className = "space-settings-discard-dialog";
+    confirmation.innerHTML = `<section aria-labelledby="discardSettingsTitle"><span class="warning-label">Thay đổi chưa lưu</span><h2 id="discardSettingsTitle">Rời khỏi màn hình này?</h2><p>Các thông tin bạn vừa nhập sẽ không được lưu.</p><div class="actions"><button type="button" data-cancel>Ở lại</button><button type="button" class="danger" data-confirm>${esc(action)}</button></div></section>`;
+    const close = () => confirmation.close();
+    confirmation.querySelector("[data-cancel]").onclick = close;
+    confirmation.querySelector("[data-confirm]").onclick = () => { confirmation.close(); markSpaceSettingsClean(); onConfirm(); };
+    confirmation.addEventListener("close", () => confirmation.remove(), { once: true });
+    document.body.append(confirmation);
+    confirmation.showModal();
+    confirmation.querySelector("[data-cancel]")?.focus();
+  }
+
+  function requestSpaceSettingsTab(tab) {
+    if (!activeSpaceSettings || activeSpaceSettings.tab === tab) return;
+    confirmSpaceSettingsDiscard("Rời màn hình", () => renderSpaceSettingsPanel(activeSpaceSettings.spaceId, tab));
+  }
+
+  function requestSpaceSettingsClose() {
+    if (!activeSpaceSettings) return closeDialog();
+    confirmSpaceSettingsDiscard("Đóng popup", () => {
+      activeSpaceSettings = null;
+      closeDialog();
+    });
+  }
+
+  function updateSpaceSettingsNavigation(tab) {
+    if (!activeSpaceSettings) return;
+    activeSpaceSettings.tab = tab;
+    const current = activeSpaceSettings.tabs.findIndex(([key]) => key === tab);
+    const previous = dialog.querySelector("#previousSpaceSettingsTab");
+    const next = dialog.querySelector("#nextSpaceSettingsTab");
+    if (previous) previous.disabled = current <= 0;
+    if (next) next.disabled = current === -1 || current >= activeSpaceSettings.tabs.length - 1;
+  }
+
+  dialog.addEventListener("input", (event) => {
+    if (dialog.classList.contains("space-settings-dialog") && event.target.closest(".space-settings-main")) spaceSettingsDirty = true;
+  });
+  dialog.addEventListener("change", (event) => {
+    if (dialog.classList.contains("space-settings-dialog") && event.target.closest(".space-settings-main")) spaceSettingsDirty = true;
+  });
+  dialog.addEventListener("cancel", (event) => {
+    if (!dialog.classList.contains("space-settings-dialog")) return;
+    event.preventDefault();
+    requestSpaceSettingsClose();
+  });
+
   function openShare(id) {
     const space = state.spaces.find((item) => item.id === id);
     if (!space) return;
@@ -315,18 +370,32 @@
     }
   }
 
+  function renderSpaceShareSettings(panel, space) {
+    const url = new URL(encodeURIComponent(space.slug), quizBaseUrl).href;
+    panel.innerHTML = `<section class="space-share-pane settings-pane" aria-labelledby="spaceShareTitle"><header><div><span class="settings-eyebrow">Chia sẻ Space</span><h2 id="spaceShareTitle">Link dành cho học viên</h2><p class="muted">Quét QR hoặc mở link để vào Space “${esc(space.name)}”.</p></div></header><div class="space-share-content"><div class="share-qr-block"><span>Quét mã QR</span><div id="spaceSettingsQrCode" class="share-qr" aria-label="Mã QR dẫn tới ${esc(url)}"></div></div><div class="share-url-block"><span>URL tới Space</span><a href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(url)}</a></div></div></section>`;
+    const qrTarget = panel.querySelector("#spaceSettingsQrCode");
+    if (window.QRCode) {
+      new QRCode(qrTarget, { text: url, width: 300, height: 300, colorDark: "#182033", colorLight: "#ffffff", correctLevel: QRCode.CorrectLevel.H });
+    } else {
+      qrTarget.textContent = "Không thể tạo mã QR.";
+    }
+  }
+
   function openSpaceSettings(spaceId, activeTab = "info") {
     const space = state.spaces.find((item) => item.id === spaceId);
     if (!space) return setStatus("Space không tồn tại.", true);
     const canManageResults = state.profile?.role === "superadmin";
     const resolvedTab = activeTab === "results" && !canManageResults ? "info" : activeTab;
     const tabs = [
+      ["share", "Chia sẻ Link"],
       ["info", "Sửa thông tin Space"],
       ["groups", "Quản lý nhóm trong Space"],
       ["questions", "Quản lý Ngân hàng câu hỏi"],
       ["real", "Quản lý Đợt thi thật"],
-      ...(canManageResults ? [["results", "Quản lý kết quả"]] : [])
+      ...(canManageResults ? [["results", "Thiết lập Database"]] : [])
     ];
+    activeSpaceSettings = { spaceId, tabs, tab: resolvedTab };
+    markSpaceSettingsClean();
     openDialog(`<section class="space-settings">
       <aside class="space-settings-nav">
         <div>
@@ -337,8 +406,19 @@
         <nav>${tabs.map(([key, label]) => `<button type="button" class="${key === resolvedTab ? "active" : ""}" data-settings-tab="${key}">${label}</button>`).join("")}</nav>
       </aside>
       <div class="space-settings-main" id="spaceSettingsPanel"></div>
+      <button type="button" class="space-settings-close" id="closeSpaceSettings" aria-label="Đóng popup">×</button>
+      <nav class="space-settings-pagination" aria-label="Điều hướng màn hình"><button type="button" id="previousSpaceSettingsTab" aria-label="Màn hình trước">‹</button><button type="button" id="nextSpaceSettingsTab" aria-label="Màn hình sau">›</button></nav>
     </section>`, "space-settings-dialog");
-    bind("[data-settings-tab]", (button) => renderSpaceSettingsPanel(spaceId, button.dataset.settingsTab));
+    bind("[data-settings-tab]", (button) => requestSpaceSettingsTab(button.dataset.settingsTab));
+    document.getElementById("closeSpaceSettings").onclick = requestSpaceSettingsClose;
+    document.getElementById("previousSpaceSettingsTab").onclick = () => {
+      const index = activeSpaceSettings.tabs.findIndex(([key]) => key === activeSpaceSettings.tab);
+      if (index > 0) requestSpaceSettingsTab(activeSpaceSettings.tabs[index - 1][0]);
+    };
+    document.getElementById("nextSpaceSettingsTab").onclick = () => {
+      const index = activeSpaceSettings.tabs.findIndex(([key]) => key === activeSpaceSettings.tab);
+      if (index >= 0 && index < activeSpaceSettings.tabs.length - 1) requestSpaceSettingsTab(activeSpaceSettings.tabs[index + 1][0]);
+    };
     window.lucide?.createIcons();
     renderSpaceSettingsPanel(spaceId, resolvedTab);
   }
@@ -354,6 +434,8 @@
     document.querySelectorAll("[data-settings-tab]").forEach((button) => {
       button.classList.toggle("active", button.dataset.settingsTab === tab);
     });
+    updateSpaceSettingsNavigation(tab);
+    if (tab === "share") return renderSpaceShareSettings(panel, space);
     if (tab === "info") return renderSpaceInfoSettings(panel, spaceId, space);
     if (tab === "groups") return renderGroupSettings(panel, spaceId, space);
     if (tab === "questions") return renderQuestionSettings(panel, spaceId, space);
@@ -501,7 +583,12 @@
       selectedSetId: inputFlow.selectedSetId ? Number(inputFlow.selectedSetId) : null,
       confirmation: inputFlow.confirmation || "",
       message: inputFlow.message || "",
-      messageTone: inputFlow.messageTone || ""
+      messageTone: inputFlow.messageTone || "",
+      questionPage: Math.max(1, Number(inputFlow.questionPage) || 1),
+      questionDeleteId: inputFlow.questionDeleteId ? Number(inputFlow.questionDeleteId) : null,
+      selectedQuestionIds: Array.isArray(inputFlow.selectedQuestionIds) ? inputFlow.selectedQuestionIds.map(Number).filter(Number.isFinite) : [],
+      questionEditorMode: inputFlow.questionEditorMode || "",
+      questionId: inputFlow.questionId ? Number(inputFlow.questionId) : null
     };
     panel.innerHTML = loadingPanel("Đang tải ngân hàng câu hỏi");
     let sets;
@@ -581,13 +668,14 @@
             ${sets.map((set) => {
               const isHidden = set.hidden_at !== null;
               return `<button type="button" class="question-bank-row${isHidden ? " hidden-bank" : ""}" data-select-question-set="${set.id}">
+                <span class="question-bank-icon"><i data-lucide="${isHidden ? "archive" : "library-big"}" aria-hidden="true"></i></span>
                 <span class="question-bank-copy">
                   <b>${esc(set.name)} ${isHidden ? '<span class="status-badge hidden-badge">Đã ẩn</span>' : ""}</b>
                   <span>${set.counts.total} câu hỏi · ${set.counts.multi} câu nhiều đáp án</span>
                 </span>
                 <span class="question-bank-trailing">
                   ${realSetIds.has(Number(set.id)) ? '<span class="question-bank-usage">Đang dùng cho Thi thật</span>' : ""}
-                  <span class="question-bank-arrow" aria-hidden="true">→</span>
+                  <i class="question-bank-arrow" data-lucide="chevron-right" aria-hidden="true"></i>
                 </span>
               </button>`;
             }).join("") || '<div class="question-bank-empty"><b>Chưa có ngân hàng câu hỏi</b><span>Tạo ngân hàng đầu tiên để bắt đầu.</span></div>'}
@@ -601,6 +689,7 @@
           <button type="button" data-close>Đóng</button>
         </footer>
       </section>`;
+      window.lucide?.createIcons();
       panel.querySelector("#addQuestionSetForm").onsubmit = async (event) => {
         event.preventDefault();
         const button = event.target.querySelector("button");
@@ -626,7 +715,8 @@
         selectedSetId: Number(button.dataset.selectQuestionSet),
         step: 2,
         message: "",
-        messageTone: ""
+        messageTone: "",
+        selectedQuestionIds: []
       }));
       panel.querySelector("[data-close]").onclick = closeQuestionWizard;
       return;
@@ -680,23 +770,26 @@
           <div><h3 id="manageQuestionBankTitle">Quản lý ngân hàng (Đã ẩn)</h3><p class="muted">Ngân hàng câu hỏi này đang bị ẩn.</p></div>
           <div class="question-action-list">
             <button type="button" class="question-action-row" id="unhideQuestionSet">
-              <span><b>Khôi phục ngân hàng câu hỏi</b><small>Bỏ ẩn ngân hàng này và phục hồi các câu hỏi hợp lệ bên trong</small></span><span aria-hidden="true">→</span>
+              <span class="question-action-icon"><i data-lucide="rotate-ccw" aria-hidden="true"></i></span><span><b>Khôi phục ngân hàng câu hỏi</b><small>Bỏ ẩn ngân hàng này và phục hồi các câu hỏi hợp lệ bên trong</small></span><i class="question-action-arrow" data-lucide="chevron-right" aria-hidden="true"></i>
             </button>
             <button type="button" class="question-action-row" id="exportQuestionsBtn" ${activeSet.counts.total ? "" : "disabled"}>
-              <span><b>Tải về ngân hàng câu hỏi</b><small>${activeSet.counts.total ? "Xuất toàn bộ câu hỏi của ngân hàng thành CSV" : "Ngân hàng chưa có câu hỏi để tải"}</small></span><span aria-hidden="true">↓</span>
+              <span class="question-action-icon"><i data-lucide="download" aria-hidden="true"></i></span><span><b>Tải về ngân hàng câu hỏi</b><small>${activeSet.counts.total ? "Xuất toàn bộ câu hỏi của ngân hàng thành CSV" : "Ngân hàng chưa có câu hỏi để tải"}</small></span><i class="question-action-arrow" data-lucide="download" aria-hidden="true"></i>
             </button>
           </div>
         </section>` : `<section class="question-action-group" aria-labelledby="manageQuestionBankTitle">
           <div><h3 id="manageQuestionBankTitle">Quản lý ngân hàng</h3><p class="muted">Chọn một thao tác để tiếp tục.</p></div>
           <div class="question-action-list">
             <button type="button" class="question-action-row" id="editQuestionSet">
-              <span><b>Sửa thông tin</b><small>Đổi tên và kiểm tra thông tin ngân hàng</small></span><span aria-hidden="true">→</span>
+              <span class="question-action-icon"><i data-lucide="pencil" aria-hidden="true"></i></span><span><b>Sửa tên ngân hàng câu hỏi</b><small>Đổi tên ngân hàng câu hỏi</small></span><i class="question-action-arrow" data-lucide="chevron-right" aria-hidden="true"></i>
             </button>
             <button type="button" class="question-action-row" id="uploadQuestionSet">
-              <span><b>Upload câu hỏi</b><small>Thêm câu hỏi từ tệp CSV vào ngân hàng này</small></span><span aria-hidden="true">→</span>
+              <span class="question-action-icon"><i data-lucide="upload" aria-hidden="true"></i></span><span><b>Upload câu hỏi</b><small>Thêm câu hỏi từ tệp CSV vào ngân hàng này</small></span><i class="question-action-arrow" data-lucide="chevron-right" aria-hidden="true"></i>
+            </button>
+            <button type="button" class="question-action-row" id="manageQuestions">
+              <span class="question-action-icon"><i data-lucide="list-checks" aria-hidden="true"></i></span><span><b>Thêm / Sửa / Xóa câu hỏi</b><small>Xem, thêm mới, sao chép, sửa và đưa từng câu hỏi vào Thùng rác</small></span><i class="question-action-arrow" data-lucide="chevron-right" aria-hidden="true"></i>
             </button>
             <button type="button" class="question-action-row" id="exportQuestionsBtn" ${activeSet.counts.total ? "" : "disabled"}>
-              <span><b>Tải về ngân hàng câu hỏi</b><small>${activeSet.counts.total ? "Xuất toàn bộ câu hỏi của ngân hàng thành CSV" : "Ngân hàng chưa có câu hỏi để tải"}</small></span><span aria-hidden="true">↓</span>
+              <span class="question-action-icon"><i data-lucide="download" aria-hidden="true"></i></span><span><b>Tải về ngân hàng câu hỏi</b><small>${activeSet.counts.total ? "Xuất toàn bộ câu hỏi của ngân hàng thành CSV" : "Ngân hàng chưa có câu hỏi để tải"}</small></span><i class="question-action-arrow" data-lucide="download" aria-hidden="true"></i>
             </button>
           </div>
         </section>
@@ -704,10 +797,10 @@
           <div><span class="danger-label">Khu vực xóa</span><h3 id="questionDangerTitle">Đưa vào Thùng rác</h3></div>
           <div class="question-action-list">
             <button type="button" class="question-action-row danger-row" id="clearQuestions" ${activeSet.counts.total && !isCurrentSetLocked ? "" : "disabled"}>
-              <span><b>Xóa toàn bộ câu hỏi</b><small>${isCurrentSetLocked ? "Bị khóa trong thời gian Đợt thi thật diễn ra" : `Có thể khôi phục trong 30 ngày; giữ lại ngân hàng “${esc(activeSet.name)}”`}</small></span><span aria-hidden="true">→</span>
+              <span class="question-action-icon"><i data-lucide="trash-2" aria-hidden="true"></i></span><span><b>Xóa toàn bộ câu hỏi</b><small>${isCurrentSetLocked ? "Bị khóa trong thời gian Đợt thi thật diễn ra" : `Có thể khôi phục trong 30 ngày; giữ lại ngân hàng “${esc(activeSet.name)}”`}</small></span><i class="question-action-arrow" data-lucide="chevron-right" aria-hidden="true"></i>
             </button>
             <button type="button" class="question-action-row danger-row" id="deleteQuestionSet" ${deleteDisabled || isCurrentSetLocked ? "disabled" : ""}>
-              <span><b>Xóa ngân hàng câu hỏi</b><small>${isCurrentSetLocked ? "Bị khóa trong thời gian Đợt thi thật diễn ra" : deleteDisabled ? "Space phải có ít nhất một ngân hàng" : `Có thể khôi phục trong 30 ngày`}</small></span><span aria-hidden="true">→</span>
+              <span class="question-action-icon"><i data-lucide="folder-x" aria-hidden="true"></i></span><span><b>Xóa ngân hàng câu hỏi</b><small>${isCurrentSetLocked ? "Bị khóa trong thời gian Đợt thi thật diễn ra" : deleteDisabled ? "Space phải có ít nhất một ngân hàng" : `Có thể khôi phục trong 30 ngày`}</small></span><i class="question-action-arrow" data-lucide="chevron-right" aria-hidden="true"></i>
             </button>
           </div>
         </section>`)}
@@ -716,6 +809,7 @@
           <button type="button" data-close>Đóng</button>
         </footer>
       </section>`;
+      window.lucide?.createIcons();
       panel.querySelector("#backToQuestionSets").onclick = () => renderNext({ step: 1, confirmation: "", message: "" });
       panel.querySelector("[data-close]").onclick = closeQuestionWizard;
       const openRealExamSettings = panel.querySelector("#openRealExamSettings");
@@ -792,6 +886,7 @@
       }
       panel.querySelector("#editQuestionSet").onclick = () => renderNext({ step: 3, mode: "edit", message: "" });
       panel.querySelector("#uploadQuestionSet").onclick = () => renderNext({ step: 3, mode: "upload", message: "" });
+      panel.querySelector("#manageQuestions").onclick = () => renderNext({ step: 3, mode: "questions", questionPage: 1, message: "" });
       panel.querySelector("#exportQuestionsBtn").onclick = async () => {
         const count = await exportQuestions(spaceId, space.slug, activeSet.id, { preserveDialog: true });
         if (count) await renderNext({ message: `Đã tải ${count} câu hỏi từ “${activeSet.name}”.` });
@@ -801,10 +896,14 @@
       return;
     }
 
+    if (flow.mode === "questions") {
+      return renderQuestionManager(panel, spaceId, space, activeSet, flow, renderNext, isCurrentSetLocked);
+    }
+
     const isEdit = flow.mode === "edit";
     panel.innerHTML = `<section class="question-wizard settings-pane" aria-labelledby="questionWizardTitle">
       <header class="question-wizard-header">
-        <div><span class="settings-eyebrow">${esc(activeSet.name)}</span><h2 id="questionWizardTitle">${isEdit ? "Sửa thông tin ngân hàng" : "Upload câu hỏi"}</h2></div>
+        <div><span class="settings-eyebrow">${esc(activeSet.name)}</span><h2 id="questionWizardTitle">${isEdit ? "Sửa tên ngân hàng câu hỏi" : "Upload câu hỏi"}</h2></div>
         <p class="muted">${isEdit ? "Cập nhật tên hiển thị của ngân hàng câu hỏi." : "Tệp hợp lệ sẽ được thêm vào ngân hàng hiện tại, không thay thế câu hỏi cũ."}</p>
       </header>
       ${questionWizardProgress(3)}
@@ -898,6 +997,411 @@
     };
   }
 
+  const questionOptionLetters = ["A", "B", "C", "D", "E"];
+
+  function questionTypeIcon(type) {
+    return type === "multi" ? "list-checks" : "circle-dot";
+  }
+
+  function questionExcerpt(content, limit = 256) {
+    const value = String(content || "");
+    return value.length > limit ? `${value.slice(0, limit)}....` : value;
+  }
+
+  function openQuestionPreview(question) {
+    const answerSet = new Set(Array.isArray(question.correct_json) ? question.correct_json : []);
+    const preview = document.createElement("dialog");
+    preview.className = "question-preview-dialog";
+    preview.innerHTML = `<section aria-labelledby="questionPreviewTitle">
+      <header><div><span class="settings-eyebrow">${question.type === "multi" ? "Nhiều đáp án" : "Một đáp án"}</span><h2 id="questionPreviewTitle">Câu hỏi #${esc(question.question_code || question.id)}</h2></div><button type="button" aria-label="Đóng">×</button></header>
+      <p class="question-preview-content">${esc(question.content)}</p>
+      <ol class="question-preview-options">${Object.entries(question.options_json || {}).map(([letter, text]) => `<li class="${answerSet.has(letter) ? "correct" : ""}"><b>${esc(letter)}</b><span>${esc(text)}</span>${answerSet.has(letter) ? '<em>Đáp án đúng</em>' : ""}</li>`).join("")}</ol>
+      <footer><button type="button" class="primary">Đóng</button></footer>
+    </section>`;
+    const close = () => preview.close();
+    preview.querySelectorAll("button").forEach((button) => { button.onclick = close; });
+    preview.addEventListener("close", () => preview.remove(), { once: true });
+    document.body.append(preview);
+    preview.showModal();
+    preview.querySelector("button")?.focus();
+  }
+
+  async function renderQuestionManager(panel, spaceId, space, activeSet, flow, renderNext, isCurrentSetLocked) {
+    const pageSize = 20;
+    panel.innerHTML = loadingPanel("Đang tải danh sách câu hỏi");
+    const page = flow.questionPage;
+    const from = (page - 1) * pageSize;
+    const { data: questions, error, count } = await client
+      .from("questions")
+      .select("id,question_code,type,content,options_json,correct_json,order_no", { count: "exact" })
+      .eq("space_id", spaceId)
+      .eq("question_set_id", activeSet.id)
+      .is("hidden_at", null)
+      .order("order_no")
+      .range(from, from + pageSize - 1);
+    if (error) return showDialogError(error.message || "Không tải được danh sách câu hỏi.");
+    const total = Number(count || 0);
+    const totalPages = Math.max(1, Math.ceil(total / pageSize));
+    if (page > totalPages) return renderNext({ questionPage: totalPages, questionDeleteId: null });
+    const deleting = (questions || []).find((item) => Number(item.id) === flow.questionDeleteId);
+    const selectedIds = [...new Set(flow.selectedQuestionIds)];
+    const selectedIdSet = new Set(selectedIds);
+    panel.innerHTML = `<section class="question-wizard settings-pane question-manager" aria-labelledby="questionWizardTitle">
+      <header class="question-wizard-header">
+        <div><span class="settings-eyebrow">${esc(activeSet.name)}</span><h2 id="questionWizardTitle">Câu hỏi trong ngân hàng</h2></div>
+        <div class="question-manager-actions"><button type="button" id="addBatchQuestions" ${isCurrentSetLocked ? "disabled" : ""}>Thêm nhiều câu hỏi</button><button type="button" class="primary" id="addQuestion" ${isCurrentSetLocked ? "disabled" : ""}>Thêm câu hỏi</button></div>
+      </header>
+      ${questionWizardProgress(3)}
+      ${questionWizardNotice(flow)}
+      ${isCurrentSetLocked ? '<p class="question-manager-lock" role="status">Ngân hàng đang là nguồn của Đợt thi thật diễn ra; chỉ có thể xem câu hỏi.</p>' : ""}
+      ${deleting ? `<section class="question-inline-confirmation" aria-labelledby="deleteQuestionTitle"><span class="danger-label">Xác nhận xóa</span><h3 id="deleteQuestionTitle">Đưa câu hỏi này vào Thùng rác?</h3><p>Câu hỏi được lưu trữ trong 30 ngày. Đề thi và kết quả đã tạo vẫn được bảo toàn.</p><div class="actions"><button type="button" id="cancelQuestionDelete">Hủy</button><button type="button" class="danger" id="confirmQuestionDelete">Xóa câu hỏi</button></div></section>` : ""}
+      <div class="question-list-meta"><span>${total} câu hỏi</span><span class="question-list-bulk"><span id="selectedQuestionCount">Đã chọn ${selectedIds.length}</span><button type="button" id="clearSelectedQuestions" ${selectedIds.length && !isCurrentSetLocked ? "" : "disabled"}>Bỏ chọn</button><button type="button" class="danger" id="deleteSelectedQuestions" ${selectedIds.length && !isCurrentSetLocked ? "" : "disabled"}>Xóa đã chọn</button><span>Trang ${page} / ${totalPages}</span></span></div>
+      <div class="question-manager-list" aria-label="Danh sách câu hỏi">${(questions || []).map((question, index) => { const optionCount = Object.keys(question.options_json || {}).length; return `<article class="question-list-row"><label class="question-select-control"><input type="checkbox" data-select-question="${question.id}" ${selectedIdSet.has(Number(question.id)) ? "checked" : ""} ${isCurrentSetLocked ? "disabled" : ""}><span class="sr-only">Chọn câu hỏi ${from + index + 1}</span></label><button type="button" class="question-list-copy" data-view-question="${question.id}" aria-label="Xem chi tiết câu hỏi ${from + index + 1}"><span class="question-list-number">${from + index + 1}</span><i class="question-type-icon" data-lucide="${questionTypeIcon(question.type)}" aria-hidden="true"></i><span><span class="question-list-title">${esc(questionExcerpt(question.content))}</span><small>#${esc(question.question_code || question.id)} · ${optionCount} đáp án</small></span></button><div class="question-list-actions"><button type="button" class="icon-button" data-edit-question="${question.id}" ${isCurrentSetLocked ? "disabled" : ""} aria-label="Sửa câu hỏi ${from + index + 1}" title="Sửa"><i data-lucide="pencil" aria-hidden="true"></i></button><button type="button" class="icon-button" data-copy-question="${question.id}" ${isCurrentSetLocked ? "disabled" : ""} aria-label="Copy câu hỏi ${from + index + 1}" title="Copy"><i data-lucide="copy" aria-hidden="true"></i></button><button type="button" class="icon-button danger" data-delete-question="${question.id}" ${isCurrentSetLocked ? "disabled" : ""} aria-label="Xóa câu hỏi ${from + index + 1}" title="Xóa"><i data-lucide="trash-2" aria-hidden="true"></i></button></div></article>`; }).join("") || '<div class="question-bank-empty"><b>Ngân hàng chưa có câu hỏi</b><span>Thêm câu hỏi đầu tiên để bắt đầu.</span></div>'}</div>
+      <nav class="question-pagination" aria-label="Phân trang câu hỏi"><button type="button" id="previousQuestionPage" ${page <= 1 ? "disabled" : ""}>← Trang trước</button><span>${from + (questions || []).length ? `${from + 1}–${from + (questions || []).length}` : "0"} / ${total}</span><button type="button" id="nextQuestionPage" ${page >= totalPages ? "disabled" : ""}>Trang sau →</button></nav>
+      <footer class="question-wizard-footer"><button type="button" data-back-actions>Quay lại</button><button type="button" data-close>Đóng</button></footer>
+    </section>`;
+    panel.querySelector("#addQuestion").onclick = () => renderQuestionEditor(panel, spaceId, space, activeSet, flow, renderNext, "add");
+    panel.querySelector("#addBatchQuestions").onclick = () => renderBatchQuestionEditor(panel, spaceId, space, activeSet, flow, renderNext);
+    panel.querySelector("#previousQuestionPage").onclick = () => renderNext({ questionPage: page - 1, questionDeleteId: null });
+    panel.querySelector("#nextQuestionPage").onclick = () => renderNext({ questionPage: page + 1, questionDeleteId: null });
+    panel.querySelector("[data-back-actions]").onclick = () => renderNext({ step: 2, mode: "", message: "" });
+    panel.querySelector("[data-close]").onclick = closeQuestionWizard;
+    panel.querySelectorAll("[data-view-question]").forEach((button) => { button.onclick = () => openQuestionPreview((questions || []).find((item) => Number(item.id) === Number(button.dataset.viewQuestion))); });
+    panel.querySelectorAll("[data-edit-question]").forEach((button) => { button.onclick = () => renderQuestionEditor(panel, spaceId, space, activeSet, flow, renderNext, "edit", (questions || []).find((item) => Number(item.id) === Number(button.dataset.editQuestion))); });
+    panel.querySelectorAll("[data-copy-question]").forEach((button) => { button.onclick = () => renderQuestionEditor(panel, spaceId, space, activeSet, flow, renderNext, "copy", (questions || []).find((item) => Number(item.id) === Number(button.dataset.copyQuestion))); });
+    panel.querySelectorAll("[data-delete-question]").forEach((button) => { button.onclick = () => renderNext({ questionDeleteId: Number(button.dataset.deleteQuestion), message: "" }); });
+    panel.querySelectorAll("[data-select-question]").forEach((input) => {
+      input.onchange = () => {
+        const id = Number(input.dataset.selectQuestion);
+        const activeSelectedIds = [...new Set(flow.selectedQuestionIds || [])];
+        const next = input.checked ? [...new Set([...activeSelectedIds, id])] : activeSelectedIds.filter((item) => item !== id);
+        flow.selectedQuestionIds = next;
+        panel.querySelector("#selectedQuestionCount").textContent = `Đã chọn ${next.length}`;
+        panel.querySelector("#clearSelectedQuestions").disabled = !next.length || isCurrentSetLocked;
+        panel.querySelector("#deleteSelectedQuestions").disabled = !next.length || isCurrentSetLocked;
+      };
+    });
+    panel.querySelector("#clearSelectedQuestions").onclick = () => {
+      flow.selectedQuestionIds = [];
+      panel.querySelectorAll("[data-select-question]").forEach((input) => { input.checked = false; });
+      panel.querySelector("#selectedQuestionCount").textContent = "Đã chọn 0";
+      panel.querySelector("#clearSelectedQuestions").disabled = true;
+      panel.querySelector("#deleteSelectedQuestions").disabled = true;
+    };
+    panel.querySelector("#deleteSelectedQuestions").onclick = async () => {
+      const currentIds = [...new Set(flow.selectedQuestionIds || [])];
+      if (!currentIds.length) return;
+      const { data: selectedQuestions, error: selectedError } = await client.from("questions").select("id,question_code,content").in("id", currentIds).eq("space_id", spaceId).is("hidden_at", null).order("order_no");
+      if (selectedError) return showDialogError(selectedError.message || "Không tải được các câu hỏi đã chọn.");
+      const currentSelectedIds = (selectedQuestions || []).map((question) => Number(question.id));
+      if (!currentSelectedIds.length) return renderNext({ selectedQuestionIds: [], questionDeleteId: null });
+      openBulkQuestionDeleteConfirmation(selectedQuestions || [], async () => {
+        const { error: bulkError } = await client.rpc("archive_questions", { target_question_ids: currentSelectedIds });
+        if (bulkError) throw bulkError;
+        await renderNext({ selectedQuestionIds: [], questionDeleteId: null, message: `Đã đưa ${currentSelectedIds.length} câu hỏi vào Thùng rác trong 30 ngày.` });
+      });
+    };
+    if (deleting) {
+      panel.querySelector("#cancelQuestionDelete").onclick = () => renderNext({ questionDeleteId: null });
+      panel.querySelector("#confirmQuestionDelete").onclick = async (event) => {
+        const restore = setButtonBusy(event.currentTarget, "Đang xóa...");
+        try {
+          const { error: archiveError } = await client.rpc("archive_question", { target_question_id: deleting.id });
+          if (archiveError) throw archiveError;
+          await renderNext({ questionDeleteId: null, message: "Đã đưa câu hỏi vào Thùng rác trong 30 ngày." });
+        } catch (archiveError) { showDialogError(archiveError.message || "Không thể xóa câu hỏi."); } finally { restore(); }
+      };
+    }
+    window.lucide?.createIcons();
+  }
+
+  function openBulkQuestionDeleteConfirmation(questions, onConfirm) {
+    const confirmation = document.createElement("dialog");
+    confirmation.className = "question-bulk-delete-dialog";
+    confirmation.innerHTML = `<section aria-labelledby="bulkDeleteTitle"><header><div><span class="danger-label">Xác nhận xóa hàng loạt</span><h2 id="bulkDeleteTitle">Đưa ${questions.length} câu hỏi vào Thùng rác?</h2></div><button type="button" aria-label="Đóng">×</button></header><p class="muted">Các câu hỏi dưới đây được lưu trữ trong 30 ngày. Đề thi và kết quả đã tạo vẫn được bảo toàn.</p><ol class="bulk-delete-question-list">${questions.map((question) => `<li><span>#${esc(question.question_code || question.id)}</span><b>${esc(questionExcerpt(question.content, 160))}</b></li>`).join("")}</ol><p class="question-bulk-delete-error" role="alert" aria-live="polite"></p><footer><button type="button" data-cancel>Hủy</button><button type="button" class="danger" data-confirm>Xóa ${questions.length} câu hỏi</button></footer></section>`;
+    const close = () => confirmation.close();
+    confirmation.querySelectorAll("header button, [data-cancel]").forEach((button) => { button.onclick = close; });
+    confirmation.querySelector("[data-confirm]").onclick = async (event) => {
+      const restore = setButtonBusy(event.currentTarget, "Đang xóa...");
+      try { await onConfirm(); confirmation.close(); }
+      catch (error) { confirmation.querySelector(".question-bulk-delete-error").textContent = error.message || "Không thể xóa các câu hỏi đã chọn."; }
+      finally { restore(); }
+    };
+    confirmation.addEventListener("close", () => confirmation.remove(), { once: true });
+    document.body.append(confirmation);
+    confirmation.showModal();
+    confirmation.querySelector("[data-cancel]")?.focus();
+  }
+
+  function parseBatchQuestions(source) {
+    const lines = String(source || "").replace(/\r\n?/g, "\n").split("\n");
+    const groups = [];
+    let current = [];
+    let startLine = 1;
+    lines.forEach((line, index) => {
+      if (!line.trim()) {
+        if (current.length) groups.push({ startLine, lines: current });
+        current = [];
+        startLine = index + 2;
+        return;
+      }
+      if (!current.length) startLine = index + 1;
+      current.push({ value: line, line: index + 1 });
+    });
+    if (current.length) groups.push({ startLine, lines: current });
+    if (!groups.length) return { questions: [], errors: [{ line: 1, message: "Hãy nhập ít nhất một cụm câu hỏi." }] };
+
+    const errors = [];
+    const questions = groups.map((group) => {
+      const questionLine = group.lines[0];
+      const answerLines = group.lines.slice(1);
+      if (answerLines.length < 2 || answerLines.length > 5) {
+        errors.push({ line: questionLine.line, message: "Mỗi cụm cần có từ 2 đến 5 đáp án." });
+        return null;
+      }
+      const options = {};
+      const correct = [];
+      answerLines.forEach((answerLine, index) => {
+        const raw = answerLine.value.trim();
+        const isCorrect = raw.endsWith("*");
+        const text = (isCorrect ? raw.slice(0, -1) : raw).trim();
+        const letter = questionOptionLetters[index];
+        if (!text) errors.push({ line: answerLine.line, message: "Đáp án không được để trống; dấu * phải đi sau nội dung đáp án." });
+        else options[letter] = text;
+        if (isCorrect && text) correct.push(letter);
+      });
+      if (!correct.length) errors.push({ line: questionLine.line, message: "Cụm câu hỏi phải có ít nhất một đáp án đúng, đánh dấu bằng * ở cuối dòng." });
+      const content = questionLine.value.trim().replace(/<br\s*\/?>/gi, "\n");
+      if (!content) errors.push({ line: questionLine.line, message: "Nội dung câu hỏi không được để trống." });
+      return {
+        sourceLine: questionLine.line,
+        type: correct.length === 1 ? "single" : "multi",
+        content,
+        options_json: options,
+        correct_json: correct
+      };
+    }).filter(Boolean);
+    return { questions, errors };
+  }
+
+  function openBatchQuestionConfirmation(questions, onConfirm) {
+    const preview = document.createElement("dialog");
+    preview.className = "batch-question-confirmation";
+    preview.innerHTML = `<section aria-labelledby="batchQuestionConfirmTitle"><header><div><span class="settings-eyebrow">Kiểm tra hoàn tất</span><h2 id="batchQuestionConfirmTitle">Thêm ${questions.length} câu hỏi?</h2></div><button type="button" aria-label="Đóng">×</button></header><p class="muted">Hãy kiểm tra loại câu hỏi và số đáp án trước khi thêm vào ngân hàng.</p><ol class="batch-question-preview-list">${questions.map((question, index) => `<li><span>${index + 1}</span><div><b>${esc(questionExcerpt(question.content, 120))}</b><small>${question.type === "single" ? "Một đáp án" : "Nhiều đáp án"} · ${Object.keys(question.options_json).length} đáp án</small></div></li>`).join("")}</ol><footer><button type="button" data-cancel>Quay lại</button><button type="button" class="primary" data-confirm>Thêm ${questions.length} câu hỏi</button></footer></section>`;
+    const close = () => preview.close();
+    preview.querySelectorAll("[data-cancel], header button").forEach((button) => { button.onclick = close; });
+    preview.querySelector("[data-confirm]").onclick = async (event) => {
+      const restore = setButtonBusy(event.currentTarget, "Đang thêm...");
+      try { await onConfirm(); preview.close(); } catch (error) { preview.querySelector(".muted").textContent = error.message || "Không thể thêm câu hỏi."; } finally { restore(); }
+    };
+    preview.addEventListener("close", () => preview.remove(), { once: true });
+    document.body.append(preview);
+    preview.showModal();
+    preview.querySelector("[data-cancel]")?.focus();
+  }
+
+  function openBatchDiscardConfirmation(onDiscard) {
+    const confirmation = document.createElement("dialog");
+    confirmation.className = "batch-discard-dialog";
+    confirmation.innerHTML = `<section aria-labelledby="batchDiscardTitle"><span class="warning-label">Xác nhận</span><h2 id="batchDiscardTitle">Bỏ nội dung đang soạn?</h2><p>Những câu hỏi đã nhập sẽ không được lưu.</p><div class="actions"><button type="button" data-cancel>Tiếp tục soạn</button><button type="button" class="danger" data-confirm>Bỏ nội dung</button></div></section>`;
+    const close = () => confirmation.close();
+    confirmation.querySelector("[data-cancel]").onclick = close;
+    confirmation.querySelector("[data-confirm]").onclick = () => { confirmation.close(); onDiscard(); };
+    confirmation.addEventListener("close", () => confirmation.remove(), { once: true });
+    document.body.append(confirmation);
+    confirmation.showModal();
+    confirmation.querySelector("[data-cancel]")?.focus();
+  }
+
+  const batchQuestionAiPrompt = [
+    "Hãy tạo bộ câu hỏi trắc nghiệm về [CHỦ ĐỀ] theo đúng định dạng plain text dưới đây để tôi dán trực tiếp vào ứng dụng.",
+    "",
+    "QUY TẮC BẮT BUỘC",
+    "- Chỉ trả về nội dung bộ câu hỏi, không tiêu đề, không lời giải thích, không Markdown và không đánh số câu/đáp án.",
+    "- TUÂN THỦ tuyệt đối format này: giữa các cụm chỉ dùng một hoặc nhiều dòng trống; tuyệt đối không thêm dòng phân cách như ----, ===, ### hoặc bất kỳ ký tự/trang trí nào khác.",
+    "- Mỗi cụm câu hỏi cách nhau bằng ít nhất một dòng trống.",
+    "- Dòng đầu tiên của mỗi cụm là nội dung câu hỏi.",
+    "- Nếu câu hỏi cần xuống dòng, dùng mã <BR> ngay trong dòng câu hỏi; không dùng dòng mới thật cho nội dung câu hỏi.",
+    "- Mỗi dòng tiếp theo là một đáp án, có từ 2 đến 5 đáp án cho mỗi câu.",
+    "- Đặt dấu * ở CUỐI dòng của mọi đáp án đúng.",
+    "- Một dấu * nghĩa là câu một đáp án; từ hai dấu * trở lên nghĩa là câu nhiều đáp án. Có thể đánh dấu tất cả đáp án là đúng.",
+    "- Nội dung đáp án không được rỗng.",
+    "",
+    "VÍ DỤ ĐÚNG",
+    "",
+    "Thủ đô của Việt Nam là gì?",
+    "Hà Nội*",
+    "Đà Nẵng",
+    "Hải Phòng",
+    "",
+    "Ngôn ngữ nào thường dùng cho web?",
+    "JavaScript*",
+    "Python*",
+    "HTML*",
+    "CSS*",
+    "",
+    "Bây giờ hãy tạo [SỐ LƯỢNG] câu hỏi về [CHỦ ĐỀ] theo đúng định dạng trên."
+  ].join("\n");
+
+  function buildBatchQuestionAiPrompt(settings) {
+    const information = [
+      `- Chủ đề: ${settings.topic}`,
+      settings.learner ? `- Đối tượng học viên: ${settings.learner}` : "",
+      settings.level ? `- Trình độ học viên: ${settings.level}` : "",
+      `- Số câu hỏi: ${settings.questionCount}`,
+      `- Số câu hỏi nhiều đáp án: ${settings.multiCount}`,
+      `- Mức độ khó: ${settings.difficulty}`,
+      settings.longCount ? `- Số câu hỏi dài: ${settings.longCount}` : ""
+    ].filter(Boolean);
+    return [
+      "Hãy tạo bộ câu hỏi trắc nghiệm theo đúng định dạng plain text dưới đây để tôi dán trực tiếp vào ứng dụng.",
+      "",
+      "THÔNG TIN BỘ ĐỀ",
+      ...information,
+      "",
+      `- Tạo đúng ${settings.questionCount} câu hỏi; trong đó đúng ${settings.multiCount} câu có nhiều đáp án đúng và ${settings.questionCount - settings.multiCount} câu có một đáp án đúng.`,
+      settings.longCount ? `- Có đúng ${settings.longCount} câu hỏi dài.` : "",
+      "",
+      ...batchQuestionAiPrompt.split("\n").slice(2, -1),
+      "",
+      "Bây giờ hãy trả về bộ câu hỏi theo đúng thông tin và định dạng trên."
+    ].filter(Boolean).join("\n");
+  }
+
+  function openBatchQuestionAiPrompt(settings) {
+    const prompt = buildBatchQuestionAiPrompt(settings);
+    const promptDialog = document.createElement("dialog");
+    promptDialog.className = "batch-ai-prompt-dialog";
+    promptDialog.innerHTML = `<section aria-labelledby="batchAiPromptTitle"><header><div><span class="settings-eyebrow">Tạo đề với chatbot</span><h2 id="batchAiPromptTitle">AI Prompt</h2></div><button type="button" aria-label="Đóng">×</button></header><p class="muted">Prompt đã được tạo theo thông tin bạn nhập và có thể sao chép ngay.</p><textarea readonly aria-label="AI Prompt">${esc(prompt)}</textarea><p class="batch-ai-copy-status" role="status" aria-live="polite"></p><footer><button type="button" data-close>Đóng</button><button type="button" class="primary" data-copy>Sao chép prompt</button></footer></section>`;
+    const close = () => promptDialog.close();
+    promptDialog.querySelectorAll("header button, [data-close]").forEach((button) => { button.onclick = close; });
+    promptDialog.querySelector("[data-copy]").onclick = async (event) => {
+      const textarea = promptDialog.querySelector("textarea");
+      const status = promptDialog.querySelector(".batch-ai-copy-status");
+      const restore = setButtonBusy(event.currentTarget, "Đang sao chép...");
+      try {
+        if (navigator.clipboard && window.isSecureContext) await navigator.clipboard.writeText(prompt);
+        else {
+          textarea.focus();
+          textarea.select();
+          if (!document.execCommand("copy")) throw new Error("Copy bị chặn");
+        }
+        status.textContent = "Đã sao chép prompt.";
+      } catch {
+        status.textContent = "Không thể sao chép tự động. Hãy chọn và sao chép nội dung trong ô.";
+      } finally { restore(); }
+    };
+    promptDialog.addEventListener("close", () => promptDialog.remove(), { once: true });
+    document.body.append(promptDialog);
+    promptDialog.showModal();
+    promptDialog.querySelector("[data-copy]")?.focus();
+  }
+
+  function openBatchQuestionAiPromptSetup() {
+    const setupDialog = document.createElement("dialog");
+    setupDialog.className = "batch-ai-setup-dialog";
+    setupDialog.innerHTML = `<form aria-labelledby="batchAiSetupTitle"><header><div><span class="settings-eyebrow">Tạo đề với chatbot</span><h2 id="batchAiSetupTitle">Thiết lập AI Prompt</h2></div><button type="button" aria-label="Đóng">×</button></header><p class="muted">Các trường có dấu <b>*</b> là bắt buộc. Thông tin tùy chọn để trống sẽ không xuất hiện trong prompt.</p><div class="batch-ai-setup-fields"><label>Nhập chủ đề*<input name="topic" required maxlength="300"></label><label>Nhập đối tượng học viên<input name="learner" maxlength="300"></label><label>Trình độ học viên<select name="level"><option value="">Không nêu</option><option>Chưa biết</option><option>Đã nắm kiến thức này</option><option>Thông thạo</option></select></label><label>Nhập số câu hỏi*<input name="questionCount" type="number" min="1" step="1" required></label><label>Nhập số câu hỏi nhiều đáp án*<input name="multiCount" type="number" min="0" step="1" required></label><label>Mức độ khó của bộ đề*<select name="difficulty" required><option value="" selected disabled>Chọn mức độ khó</option><option>Dễ</option><option>Trung bình</option><option>Khó</option></select></label><label>Số câu hỏi dài<input name="longCount" type="number" min="0" step="1"></label></div><p class="batch-ai-setup-error" role="alert" aria-live="polite"></p><footer><button type="button" data-cancel>Hủy</button><button type="submit" class="primary">Tạo prompt</button></footer></form>`;
+    const close = () => setupDialog.close();
+    setupDialog.querySelectorAll("header button, [data-cancel]").forEach((button) => { button.onclick = close; });
+    setupDialog.querySelector("form").onsubmit = (event) => {
+      event.preventDefault();
+      const form = new FormData(event.currentTarget);
+      const questionCount = Number(form.get("questionCount"));
+      const multiCount = Number(form.get("multiCount"));
+      const longCountValue = String(form.get("longCount") || "").trim();
+      const longCount = longCountValue ? Number(longCountValue) : null;
+      const error = setupDialog.querySelector(".batch-ai-setup-error");
+      if (!Number.isInteger(questionCount) || questionCount < 1 || !Number.isInteger(multiCount) || multiCount < 0 || multiCount > questionCount) { error.textContent = "Số câu hỏi nhiều đáp án phải từ 0 đến tổng số câu hỏi."; return; }
+      if (longCount !== null && (!Number.isInteger(longCount) || longCount < 0 || longCount > questionCount)) { error.textContent = "Số câu hỏi dài phải từ 0 đến tổng số câu hỏi."; return; }
+      const settings = { topic: String(form.get("topic") || "").trim(), learner: String(form.get("learner") || "").trim(), level: String(form.get("level") || ""), questionCount, multiCount, difficulty: String(form.get("difficulty") || ""), longCount };
+      if (!settings.topic || !settings.difficulty) { error.textContent = "Hãy điền đủ các trường bắt buộc."; return; }
+      setupDialog.close();
+      window.setTimeout(() => openBatchQuestionAiPrompt(settings), 0);
+    };
+    setupDialog.addEventListener("close", () => setupDialog.remove(), { once: true });
+    document.body.append(setupDialog);
+    setupDialog.showModal();
+    setupDialog.querySelector("[name=topic]")?.focus();
+  }
+
+  function renderBatchQuestionEditor(panel, spaceId, space, activeSet, flow, renderNext) {
+    panel.innerHTML = `<section class="question-wizard settings-pane batch-question-editor" aria-labelledby="questionWizardTitle"><header class="question-wizard-header"><div><span class="settings-eyebrow">${esc(activeSet.name)}</span><h2 id="questionWizardTitle">Thêm nhiều câu hỏi</h2></div><p class="muted">Mỗi cụm cách nhau bằng dòng trống. Dùng <code>&lt;BR&gt;</code> trong dòng câu hỏi để xuống dòng.</p></header>${questionWizardProgress(3)}<div class="batch-question-rules"><div><b>Quy ước nhanh</b><span>Dòng đầu là câu hỏi · 2–5 dòng sau là đáp án · thêm <code>*</code> cuối đáp án đúng.</span></div><button type="button" id="openBatchAiPrompt">AI Prompt</button></div><div class="batch-question-source"><pre id="batchLineNumbers" aria-hidden="true">1</pre><textarea id="batchQuestionText" spellcheck="true" placeholder="Câu hỏi 1&#10;Đáp án 1&#10;Đáp án đúng*&#10;&#10;Câu hỏi 2&lt;BR&gt;dòng thứ hai&#10;Đáp án 1*&#10;Đáp án 2*"></textarea></div><div id="batchQuestionErrors" class="batch-question-errors" role="alert" aria-live="polite"></div><footer class="question-wizard-footer"><button type="button" id="closeBatchEditor">Đóng</button><button type="button" class="primary" id="validateBatchQuestions">Kiểm tra</button></footer></section>`;
+    const textarea = panel.querySelector("#batchQuestionText");
+    const lineNumbers = panel.querySelector("#batchLineNumbers");
+    const errorBox = panel.querySelector("#batchQuestionErrors");
+    panel.querySelector("#openBatchAiPrompt").onclick = openBatchQuestionAiPromptSetup;
+    const syncLineNumbers = () => {
+      const count = Math.max(1, textarea.value.split(/\r?\n/).length);
+      lineNumbers.textContent = Array.from({ length: count }, (_, index) => index + 1).join("\n");
+      lineNumbers.scrollTop = textarea.scrollTop;
+    };
+    const showErrors = (errors) => {
+      if (!errors.length) { errorBox.innerHTML = ""; return; }
+      errorBox.innerHTML = `<b>Cần sửa ${errors.length} lỗi:</b><ul>${errors.map((error) => `<li><span>Dòng ${error.line}</span>${esc(error.message)}</li>`).join("")}</ul>`;
+    };
+    textarea.oninput = () => { syncLineNumbers(); showErrors([]); };
+    textarea.onscroll = () => { lineNumbers.scrollTop = textarea.scrollTop; };
+    syncLineNumbers();
+    panel.querySelector("#closeBatchEditor").onclick = () => {
+      if (!textarea.value.trim()) return renderNext({ questionDeleteId: null });
+      openBatchDiscardConfirmation(() => renderNext({ questionDeleteId: null }));
+    };
+    panel.querySelector("#validateBatchQuestions").onclick = () => {
+      const result = parseBatchQuestions(textarea.value);
+      showErrors(result.errors);
+      if (result.errors.length) return;
+      openBatchQuestionConfirmation(result.questions, async () => {
+        const inserted = await importQuestions(spaceId, result.questions, activeSet.id, null, { preserveDialog: true });
+        if (inserted !== result.questions.length) throw new Error("Không thể thêm đầy đủ các câu hỏi.");
+        await renderNext({ questionDeleteId: null, message: `Đã thêm ${inserted} câu hỏi vào ngân hàng.` });
+      });
+    };
+  }
+
+  function renderQuestionEditor(panel, spaceId, space, activeSet, flow, renderNext, mode, question = null) {
+    const isEdit = mode === "edit";
+    const source = question || { type: "single", content: "", options_json: { A: "", B: "" }, correct_json: [] };
+    const title = isEdit ? "Sửa câu hỏi" : mode === "copy" ? "Copy câu hỏi" : "Thêm câu hỏi";
+    panel.innerHTML = `<section class="question-wizard settings-pane question-editor" aria-labelledby="questionWizardTitle"><header class="question-wizard-header"><div><span class="settings-eyebrow">${esc(activeSet.name)}</span><h2 id="questionWizardTitle">${title}</h2></div><p class="muted">Nội dung thuần văn bản; có thể xuống dòng và dùng mọi ký tự.</p></header>${questionWizardProgress(3)}<form id="questionEditorForm" class="question-editor-form"><label for="questionType">Loại câu hỏi<select id="questionType" name="type"><option value="single" ${source.type !== "multi" ? "selected" : ""}>Một đáp án đúng</option><option value="multi" ${source.type === "multi" ? "selected" : ""}>Nhiều đáp án đúng</option></select></label><label for="questionContent">Nội dung câu hỏi<textarea id="questionContent" name="content" rows="5" required>${esc(source.content)}</textarea></label><fieldset><legend>Đáp án <small>Điền tối đa 5 đáp án; đánh dấu đáp án đúng.</small></legend><div class="question-option-editor">${questionOptionLetters.map((letter) => `<label class="question-option-field"><span>${letter}</span><input name="option_${letter}" value="${esc(source.options_json?.[letter] || "")}" placeholder="Đáp án ${letter}"><input class="question-correct-control" type="${source.type === "multi" ? "checkbox" : "radio"}" name="correct" value="${letter}" ${Array.isArray(source.correct_json) && source.correct_json.includes(letter) ? "checked" : ""} aria-label="Đáp án ${letter} là đúng"></label>`).join("")}</div></fieldset><p class="question-editor-error" id="questionEditorError" role="alert" hidden></p><footer class="question-wizard-footer"><button type="button" id="backToQuestions">Quay lại</button><button class="primary">${isEdit ? "Lưu thay đổi" : "Thêm câu hỏi"}</button></footer></form></section>`;
+    panel.querySelector("#backToQuestions").onclick = () => renderNext({ questionDeleteId: null });
+    panel.querySelector("#questionType").onchange = (event) => {
+      const controls = panel.querySelectorAll(".question-correct-control");
+      controls.forEach((control) => { control.type = event.target.value === "multi" ? "checkbox" : "radio"; });
+      if (event.target.value === "single") {
+        const selected = [...controls].find((control) => control.checked);
+        controls.forEach((control) => { control.checked = control === selected; });
+      }
+    };
+    panel.querySelector("#questionEditorForm").onsubmit = async (event) => {
+      event.preventDefault();
+      const form = new FormData(event.target);
+      const type = String(form.get("type"));
+      const content = String(form.get("content") || "").trim();
+      const options = Object.fromEntries(questionOptionLetters.map((letter) => [letter, String(form.get(`option_${letter}`) || "").trim()]).filter(([, value]) => value));
+      const correct = form.getAll("correct").filter((letter) => options[letter]);
+      const errorNode = panel.querySelector("#questionEditorError");
+      const showError = (message) => { errorNode.textContent = message; errorNode.hidden = false; };
+      errorNode.hidden = true;
+      if (!content) return showError("Hãy nhập nội dung câu hỏi.");
+      if (!options.A || !options.B) return showError("Cần có ít nhất đáp án A và B.");
+      if (!correct.length || (type === "single" && correct.length !== 1) || (type === "multi" && correct.length < 2)) return showError(type === "single" ? "Câu một đáp án cần chọn đúng một đáp án đúng." : "Câu nhiều đáp án cần chọn ít nhất hai đáp án đúng.");
+      const submit = event.submitter;
+      const restore = setButtonBusy(submit, isEdit ? "Đang lưu..." : "Đang thêm...");
+      try {
+        if (isEdit) {
+          const { error } = await client.from("questions").update({ type, content, options_json: options, correct_json: correct }).eq("id", question.id).eq("space_id", spaceId);
+          if (error) throw error;
+        } else {
+          const { data: latest, error: latestError } = await client.from("questions").select("order_no").eq("space_id", spaceId).order("order_no", { ascending: false }).limit(1);
+          if (latestError) throw latestError;
+          const { error } = await client.from("questions").insert({ space_id: spaceId, question_set_id: activeSet.id, order_no: Number(latest?.[0]?.order_no || 0) + 1, type, content, options_json: options, correct_json: correct });
+          if (error) throw error;
+        }
+        await renderNext({ questionDeleteId: null, message: isEdit ? "Đã lưu thay đổi câu hỏi." : "Đã thêm câu hỏi vào ngân hàng." });
+      } catch (saveError) { showError(saveError.message || "Không thể lưu câu hỏi."); } finally { restore(); }
+    };
+  }
+
   function realExamStatusLabel(status) {
     return {
       scheduled: "Sắp diễn ra",
@@ -985,6 +1489,7 @@
         ${notice}
         <form id="realExamFilterForm" class="real-exam-filters">
           <label>Tìm theo tên hoặc ID<input name="search" value="${esc(flow.search)}" placeholder="Ví dụ: cuối kỳ hoặc #12345"></label>
+          <button type="submit">Tìm kiếm</button>
           <label>Trạng thái<select name="status">
             <option value="">Tất cả</option>
             <option value="scheduled" ${flow.status === "scheduled" ? "selected" : ""}>Sắp diễn ra</option>
@@ -993,7 +1498,6 @@
             <option value="ended" ${flow.status === "ended" ? "selected" : ""}>Đã kết thúc</option>
             ${state.profile?.role === "superadmin" ? `<option value="hidden" ${flow.status === "hidden" ? "selected" : ""}>Đã ẩn</option>` : ""}
           </select></label>
-          <button type="submit">Lọc</button>
         </form>
         <div class="real-exam-list">
           ${exams.map((exam) => `<button type="button" class="real-exam-list-row" data-real-exam-id="${exam.id}">
@@ -1015,6 +1519,10 @@
       panel.querySelector("#realExamFilterForm").onsubmit = (event) => {
         event.preventDefault();
         const form = new FormData(event.target);
+        renderNext({ page: 1, search: String(form.get("search") || "").trim(), status: String(form.get("status") || "") });
+      };
+      panel.querySelector("#realExamFilterForm select[name='status']").onchange = (event) => {
+        const form = new FormData(event.currentTarget.form);
         renderNext({ page: 1, search: String(form.get("search") || "").trim(), status: String(form.get("status") || "") });
       };
       panel.querySelector("#previousRealExamPage").onclick = () => renderNext({ page: flow.page - 1 });
@@ -1340,10 +1848,16 @@
           ${selectField("timer_seconds", "Thời gian mỗi câu", [45,60,90,120], sourceExam?.timer_seconds || 60, "s")}
           ${selectField("max_attempts", "Số lần thi tối đa", [1,2,3,4,5], sourceExam?.max_attempts || 1, "")}
         </div>
-        <label>Cách tính điểm<select name="scoring_method">
-          <option value="1" ${Number(sourceExam?.scoring_method || 2) === 1 ? "selected" : ""}>Cách tính điểm 1</option>
-          <option value="2" ${Number(sourceExam?.scoring_method || 2) === 2 ? "selected" : ""}>Cách tính điểm 2</option>
-        </select></label>
+        <div class="scoring-field-row">
+          <label>Cách tính điểm<select name="scoring_method">
+            <option value="1" ${Number(sourceExam?.scoring_method || 2) === 1 ? "selected" : ""}>Cách tính điểm 1</option>
+            <option value="2" ${Number(sourceExam?.scoring_method || 2) === 2 ? "selected" : ""}>Cách tính điểm 2</option>
+          </select></label>
+          <div class="scoring-help">
+            <button type="button" class="scoring-help-button" aria-label="Xem chi tiết cách tính điểm" aria-expanded="false">?</button>
+            <div class="scoring-tooltip" role="tooltip">${scoringMethodTooltip(Number(sourceExam?.scoring_method || 2))}</div>
+          </div>
+        </div>
         <div id="realExamPoolPreview" class="real-exam-pool-preview" role="status" aria-live="polite"></div>
       </section>
       <footer class="question-wizard-footer"><button type="button" id="cancelRealExamForm">Quay lại</button><button class="primary">${exam ? `Tạo Phiên bản ${Number(exam.current_revision_no || 1) + 1}` : flow.clone ? "Tạo bản copy" : "Tạo Đợt thi"}</button></footer>
@@ -1352,7 +1866,7 @@
       if (exam) renderNext({ view: "detail", clone: null });
       else renderNext({ view: "list", clone: null });
     };
-    wireRealSetControls();
+    wireRealSetControls(panel);
     const updatePoolPreview = () => {
       const checkedIds = [...panel.querySelectorAll("[data-real-set-check]:checked")].map((input) => Number(input.dataset.realSetCheck));
       const total = sets.filter((set) => checkedIds.includes(Number(set.id))).reduce((sum, set) => sum + set.counts.total, 0);
@@ -1363,6 +1877,20 @@
       panel.querySelector("#realExamPoolPreview").innerHTML = `<span><b>${total}</b> câu trong nguồn</span><span><b>${target}</b> câu trong Đề thi</span><span><b>${multi}</b> câu nhiều đáp án mục tiêu</span><span><b>${Math.max(0, target - multi)}</b> câu một đáp án</span>`;
     };
     panel.querySelectorAll("[data-real-set-check], [data-real-set-percent], [name='question_percent'], [name='multi_percent']").forEach((input) => input.addEventListener("change", updatePoolPreview));
+    const scoringSelect = panel.querySelector('[name="scoring_method"]');
+    const scoringHelp = panel.querySelector(".scoring-help");
+    const scoringHelpButton = panel.querySelector(".scoring-help-button");
+    const scoringTooltip = panel.querySelector(".scoring-tooltip");
+    scoringSelect.onchange = () => { scoringTooltip.innerHTML = scoringMethodTooltip(Number(scoringSelect.value)); };
+    scoringHelpButton.onclick = () => {
+      const open = scoringHelp.classList.toggle("open");
+      scoringHelpButton.setAttribute("aria-expanded", String(open));
+    };
+    panel.addEventListener("click", (event) => {
+      if (event.target.closest(".scoring-help")) return;
+      scoringHelp.classList.remove("open");
+      scoringHelpButton.setAttribute("aria-expanded", "false");
+    });
     updatePoolPreview();
     panel.querySelector("#realExamV2Form").onsubmit = async (event) => {
       event.preventDefault();
@@ -1374,7 +1902,7 @@
       if (startAt === "invalid" || endAt === "invalid" || !startAt || !endAt || new Date(startAt) >= new Date(endAt)) {
         return showDialogError("Thời gian bắt đầu phải trước thời gian kết thúc.");
       }
-      const sources = readRealQuestionSetConfig();
+      const sources = readRealQuestionSetConfig(panel);
       if (!sources?.length || sources.reduce((sum, item) => sum + Number(item.percent || 0), 0) !== 100) {
         return showDialogError("Chọn nguồn câu hỏi và bảo đảm tổng tỷ lệ bằng 100%.");
       }
@@ -1442,7 +1970,7 @@
 
   async function renderResultSettings(panel, spaceId, space) {
     panel.innerHTML = `<section class="grid settings-pane">
-      <h2>Quản lý kết quả</h2>
+      <h2>Thiết lập Database</h2>
       <form id="resultRetentionForm" class="settings-section">
         <div>
           <h3>Giới hạn kết quả Thi thử</h3>
@@ -1489,6 +2017,7 @@
       if (status) {
         status.textContent = `Đã lưu và dọn ${Number(data?.mock_deleted_by_days || 0) + Number(data?.mock_deleted_by_cap || 0)} kết quả Thi thử. Kết quả Thi thật không bị thay đổi.`;
       }
+      markSpaceSettingsClean();
       await renderSpaces();
     } finally {
       restoreButton();
@@ -1579,27 +2108,27 @@
     </table>`;
   }
 
-  function wireRealSetControls() {
+  function wireRealSetControls(root = document) {
     const sync = (changedId = null) => {
-      const checked = [...document.querySelectorAll("[data-real-set-check]:checked")].map((input) => ({
+      const checked = [...root.querySelectorAll("[data-real-set-check]:checked")].map((input) => ({
         id: Number(input.dataset.realSetCheck),
-        percent: Number(document.querySelector(`[data-real-set-percent="${input.dataset.realSetCheck}"]`)?.value || 0)
+        percent: Number(root.querySelector(`[data-real-set-percent="${input.dataset.realSetCheck}"]`)?.value || 0)
       }));
       const normalized = normalizePercentConfig(checked, changedId);
-      document.querySelectorAll("[data-real-set-percent]").forEach((input) => {
+      root.querySelectorAll("[data-real-set-percent]").forEach((input) => {
         const item = normalized.find((config) => Number(config.id) === Number(input.dataset.realSetPercent));
         input.disabled = !item;
         if (item) input.value = String(item.percent);
         else input.value = "0";
       });
       const total = normalized.reduce((sum, item) => sum + item.percent, 0);
-      const hint = document.getElementById("realSetTotalHint");
+      const hint = root.querySelector("#realSetTotalHint");
       if (hint) hint.textContent = normalized.length ? `Tổng tỷ lệ đang chọn: ${total}%` : "Chọn ít nhất một Bộ câu hỏi khi bật Thi thật.";
     };
-    document.querySelectorAll("[data-real-set-check]").forEach((input) => {
+    root.querySelectorAll("[data-real-set-check]").forEach((input) => {
       input.onchange = () => sync();
     });
-    document.querySelectorAll("[data-real-set-percent]").forEach((input) => {
+    root.querySelectorAll("[data-real-set-percent]").forEach((input) => {
       input.oninput = () => sync(Number(input.dataset.realSetPercent));
     });
     sync();
@@ -1607,7 +2136,7 @@
 
   function bindPanelCloseButtons(panel) {
     panel.querySelectorAll("[data-close]").forEach((button) => {
-      button.onclick = closeDialog;
+      button.onclick = requestSpaceSettingsClose;
     });
   }
 
@@ -2039,10 +2568,13 @@
 
   function buildQuestionInsertRows(spaceId, questions, questionSetId, maxOrder) {
     return questions.map((question, index) => ({
-      ...question,
       space_id: spaceId,
       question_set_id: questionSetId,
-      order_no: maxOrder + index + 1
+      order_no: maxOrder + index + 1,
+      type: question.type,
+      content: question.content,
+      options_json: question.options_json,
+      correct_json: question.correct_json
     }));
   }
 
@@ -2200,11 +2732,11 @@
     return Number.isFinite(date.getTime()) ? date.toISOString() : "invalid";
   }
 
-  function readRealQuestionSetConfig() {
-    if (!document.querySelector("[data-real-set-check]")) return null;
-    const rows = [...document.querySelectorAll("[data-real-set-check]:checked")].map((input) => ({
+  function readRealQuestionSetConfig(root = document) {
+    if (!root.querySelector("[data-real-set-check]")) return null;
+    const rows = [...root.querySelectorAll("[data-real-set-check]:checked")].map((input) => ({
       id: Number(input.dataset.realSetCheck),
-      percent: Number(document.querySelector(`[data-real-set-percent="${input.dataset.realSetCheck}"]`)?.value || 0)
+      percent: Number(root.querySelector(`[data-real-set-percent="${input.dataset.realSetCheck}"]`)?.value || 0)
     }));
     return normalizePercentConfig(rows);
   }
@@ -2262,9 +2794,10 @@
     if (error) return setStatus(error.message, true);
     view.innerHTML = `<header class="topbar"><div><h1>Quản lý Admin</h1><p class="muted">Tài khoản được quản lý qua Supabase Auth.</p></div><button class="primary" id="addUserBtn">Thêm Admin</button></header>
       <section class="panel table-wrap"><table><thead><tr><th>Email</th><th>Họ tên</th><th>Role</th><th>Active</th><th></th></tr></thead>
-      <tbody>${data.map((user) => `<tr><td>${esc(user.email)}</td><td>${esc(user.fullname)}</td><td>${esc(user.role)}</td><td>${user.active ? "Có" : "Không"}</td><td><div class="actions"><button data-edit-user="${user.id}">Sửa</button><button class="danger" data-delete-user="${user.id}">Xóa</button></div></td></tr>`).join("")}</tbody></table></section>`;
+      <tbody>${data.map((user) => `<tr><td>${esc(user.email)}</td><td>${esc(user.fullname)}</td><td>${esc(user.role)}</td><td>${user.active ? "Có" : "Không"}</td><td><div class="actions"><button data-edit-user="${user.id}">Sửa</button><button data-reset-user="${user.id}">Cấp lại mật khẩu</button><button class="danger" data-delete-user="${user.id}">Xóa</button></div></td></tr>`).join("")}</tbody></table></section>`;
     document.getElementById("addUserBtn").onclick = () => openUser();
     bind("[data-edit-user]", (button) => openUser(data.find((user) => user.id === button.dataset.editUser)));
+    bind("[data-reset-user]", (button) => openAdminPasswordReset(data.find((user) => user.id === button.dataset.resetUser)));
     bind("[data-delete-user]", async (button) => {
       if (!confirm("Xóa tài khoản Admin này?")) return;
       const { error: invokeError } = await client.functions.invoke("admin-users", {
@@ -2273,6 +2806,59 @@
       if (invokeError) return setStatus(invokeError.message, true);
       await renderUsers();
     });
+  }
+
+  function createAdminPassword() {
+    const upper = "ABCDEFGHJKLMNPQRSTUVWXYZ";
+    const lower = "abcdefghijkmnopqrstuvwxyz";
+    const digits = "23456789";
+    const symbols = "!@#$%&*?";
+    const all = `${upper}${lower}${digits}${symbols}`;
+    const pick = (source) => source[crypto.getRandomValues(new Uint32Array(1))[0] % source.length];
+    const characters = [pick(upper), pick(lower), pick(digits), pick(symbols), ...Array.from({ length: 4 }, () => pick(all))];
+    for (let index = characters.length - 1; index > 0; index -= 1) {
+      const next = crypto.getRandomValues(new Uint32Array(1))[0] % (index + 1);
+      [characters[index], characters[next]] = [characters[next], characters[index]];
+    }
+    return characters.join("");
+  }
+
+  function openAdminPasswordReset(user) {
+    if (!user) return;
+    const generatedPassword = createAdminPassword();
+    openDialog(`<form id="resetAdminPasswordForm" class="grid password-panel" aria-labelledby="resetAdminPasswordTitle"><div><span class="settings-eyebrow">${esc(user.email)}</span><h2 id="resetAdminPasswordTitle">Cấp lại mật khẩu</h2><p class="muted">Mật khẩu cần ít nhất 8 ký tự, gồm chữ hoa, số và ký tự đặc biệt.</p></div><label for="resetAdminPassword">Mật khẩu mới<div class="password-field"><input id="resetAdminPassword" name="password" type="password" value="${esc(generatedPassword)}" minlength="8" autocomplete="new-password" required><button type="button" class="icon-button" id="toggleResetAdminPassword" aria-label="Hiện mật khẩu"><i data-lucide="eye"></i></button></div></label><p id="resetAdminPasswordError" class="question-editor-error" role="alert" hidden></p><div class="actions"><button type="button" data-close>Hủy</button><button class="primary">Update</button></div></form>`);
+    document.querySelector("[data-close]").onclick = closeDialog;
+    const passwordInput = document.getElementById("resetAdminPassword");
+    const toggle = document.getElementById("toggleResetAdminPassword");
+    toggle.onclick = () => {
+      const visible = passwordInput.type === "text";
+      passwordInput.type = visible ? "password" : "text";
+      toggle.setAttribute("aria-label", visible ? "Hiện mật khẩu" : "Ẩn mật khẩu");
+      toggle.innerHTML = `<i data-lucide="${visible ? "eye" : "eye-off"}"></i>`;
+      window.lucide?.createIcons();
+    };
+    window.lucide?.createIcons();
+    document.getElementById("resetAdminPasswordForm").onsubmit = async (event) => {
+      event.preventDefault();
+      const password = String(new FormData(event.target).get("password") || "");
+      const error = document.getElementById("resetAdminPasswordError");
+      if (password.length < 8 || !/[A-Z]/.test(password) || !/\d/.test(password) || !/[^A-Za-z0-9]/.test(password)) {
+        error.textContent = "Mật khẩu cần ít nhất 8 ký tự, gồm chữ hoa, số và ký tự đặc biệt.";
+        error.hidden = false;
+        return;
+      }
+      error.hidden = true;
+      const restore = setButtonBusy(event.submitter, "Đang cập nhật...");
+      try {
+        const { error: invokeError } = await client.functions.invoke("admin-users", { body: { action: "reset_password", id: user.id, password } });
+        if (invokeError) throw invokeError;
+        closeDialog();
+        setStatus(`Đã cấp lại mật khẩu cho ${user.email}.`);
+      } catch (invokeError) {
+        error.textContent = invokeError.message || "Không thể cấp lại mật khẩu.";
+        error.hidden = false;
+      } finally { restore(); }
+    };
   }
 
   async function openUser(user = null) {

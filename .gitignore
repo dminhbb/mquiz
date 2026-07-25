@@ -1,14 +1,9 @@
 # Node.js dependencies
 node_modules/
 
-# SQL migration files are tracked only inside supabase/.
+# SQL migration files are tracked inside supabase/.
 *.sql
-!supabase/delete_question_set_cascade.sql
-!supabase/real_exams_v2.sql
-!supabase/real_exam_revisions.sql
-!supabase/archive_lifecycle.sql
-!supabase/real_exam_rebuild.sql
-!supabase/real_exam_public_leaderboard.sql
+!supabase/**/*.sql
 
 # Generated deployment files
 dist/
