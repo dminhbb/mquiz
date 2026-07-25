@@ -1,26 +1,14 @@
 {
-  "name": "simple-quiz",
+  "name": "mquiz",
   "version": "0.1.0",
   "private": true,
-  "description": "Simple.QUIZ local backend and static quiz frontend",
+  "description": "mquiz Supabase-backed static quiz application",
   "scripts": {
-    "dev": "node backend/src/server.js",
-    "start": "node backend/src/server.js",
-    "build": "sh build-cloudflare.sh",
-    "generate": "node backend/src/cli-generate.js",
-    "migrate:cloud": "node scripts/migrate-sqlite-to-supabase.js",
+    "build": "node scripts/build-static.js",
+    "dev": "node scripts/dev-static.js",
     "design:check": "node scripts/check-design-system.js",
     "version:bump": "node scripts/bump-app-version.js",
     "deploy:quiz-evaluate": "supabase functions deploy quiz-evaluate"
-  },
-  "dependencies": {
-    "archiver": "^7.0.1",
-    "bcrypt": "^6.0.0",
-    "better-sqlite3": "^12.11.1",
-    "csv-parse": "^5.6.0",
-    "express": "^4.21.2",
-    "express-session": "^1.18.1",
-    "multer": "^2.0.2"
   },
   "devDependencies": {
     "supabase": "^2.109.1"

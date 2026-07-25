@@ -4,7 +4,7 @@ const {
   updateHtmlVersionFile,
   validateAppVersion,
   writeAppVersionFlag
-} = require("../backend/src/app-version");
+} = require("./app-version");
 
 const projectRoot = path.resolve(__dirname, "..");
 const versionFilePath = path.join(projectRoot, "frontend", "app-version.json");

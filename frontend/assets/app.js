@@ -14,8 +14,6 @@
   const state = {
     theme: "light",
     space: null,
-    cloud: false,
-    dataToken: null,
     slug: "",
     answers: null,
     mode: "mock",
@@ -83,21 +81,6 @@
     : state.mode === "practice" ? "practice" : "mock";
   let supabaseClient = null;
 
-  async function sha256(text) {
-    const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(String(text)));
-    return [...new Uint8Array(bytes)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
-  }
-
-  function loadScript(src) {
-    return new Promise((resolve, reject) => {
-      const script = document.createElement("script");
-      script.src = src;
-      script.onload = resolve;
-      script.onerror = reject;
-      document.head.appendChild(script);
-    });
-  }
-
   async function boot() {
     renderShell("<div class='center'><div class='muted'>Đang tải...</div></div>");
     let pathname = location.pathname;
@@ -137,19 +120,7 @@
       renderSpaceLoadError();
       return;
     }
-    const index = window.__SQ_INDEX__ || {};
-    const slugHash = await sha256(slug);
-    const dataToken = index[slugHash];
-    if (!dataToken) return renderWelcome();
-    try {
-      await loadScript(`${basePath}/data/${dataToken}.data.js`);
-      state.space = window.__SQ_SPACE__;
-      state.dataToken = dataToken;
-      configureLoadedSpace();
-      renderSetup();
-    } catch (error) {
-      renderWelcome();
-    }
+    return renderNotFound();
   }
 
   async function getCloudSpaceStatus(slug) {
@@ -184,7 +155,6 @@
       const contentError = groupError || questionError || questionSetError;
       if (contentError) throw contentError;
       if (!questions?.length) throw new Error("Space chưa có câu hỏi khả dụng.");
-      state.cloud = true;
       state.entryKind = "space";
       state.examCode = null;
       state.space = {
@@ -231,7 +201,6 @@
       if (error || !data?.exists) return false;
       const examSpace = data.space || {};
       const questions = Array.isArray(data.questions) ? data.questions : [];
-      state.cloud = true;
       state.entryKind = "real";
       state.examCode = Number(data.code);
       state.slug = examSpace.slug || "";
@@ -1267,27 +1236,21 @@
     stopTimer();
     delete state.remaining[question.id];
     const selection = sorted(state.selections[question.id] || []);
-    if (state.cloud) {
-      if (state.mode === "practice") {
-        const client = getSupabaseClient();
-        const { data, error } = await client.functions.invoke("quiz-evaluate", {
-          body: { action: "check", slug: state.slug, question_id: question.id, selected: selection, exam_code: state.examCode }
-        });
-        if (error || data?.error) {
-          state.locked[question.id] = false;
-          showToast(data?.error || error?.message || "Không kiểm tra được đáp án.", "warning");
-          return false;
-        }
-        state.correctness[question.id] = Boolean(data.is_correct);
-        state.answers = state.answers || { answers: {} };
-        state.answers.answers[question.id] = data.correct;
-      } else {
-        state.correctness[question.id] = false;
+    if (state.mode === "practice") {
+      const client = getSupabaseClient();
+      const { data, error } = await client.functions.invoke("quiz-evaluate", {
+        body: { action: "check", slug: state.slug, question_id: question.id, selected: selection, exam_code: state.examCode }
+      });
+      if (error || data?.error) {
+        state.locked[question.id] = false;
+        showToast(data?.error || error?.message || "Không kiểm tra được đáp án.", "warning");
+        return false;
       }
+      state.correctness[question.id] = Boolean(data.is_correct);
+      state.answers = state.answers || { answers: {} };
+      state.answers.answers[question.id] = data.correct;
     } else {
-      const hash = await sha256(`${selection.join(",")}${question.salt}`);
-      state.correctness[question.id] = hash === question.check;
-      if (state.mode === "practice") await ensureAnswers();
+      state.correctness[question.id] = false;
     }
     if (autoAdvance && state.mode !== "practice") {
       if (state.current === state.selectedIds.length - 1) submitQuiz();
@@ -1342,18 +1305,12 @@
 
   async function ensureAnswers() {
     if (state.answers) return state.answers;
-    if (state.cloud) {
-      const client = getSupabaseClient();
-      const { data, error } = await client.functions.invoke("quiz-evaluate", {
-        body: { action: "answers", slug: state.slug, question_ids: state.selectedIds, exam_code: state.examCode }
-      });
-      if (error || data?.error) throw new Error(data?.error || error?.message || "Không tải được đáp án.");
-      state.answers = { answers: data.answers || {} };
-      return state.answers;
-    }
-    const keyToken = await sha256(`${state.dataToken}${state.space.key_salt}`);
-    await loadScript(`${basePath}/data/${keyToken}.key.js`);
-    state.answers = window.__SQ_ANSWERS__;
+    const client = getSupabaseClient();
+    const { data, error } = await client.functions.invoke("quiz-evaluate", {
+      body: { action: "answers", slug: state.slug, question_ids: state.selectedIds, exam_code: state.examCode }
+    });
+    if (error || data?.error) throw new Error(data?.error || error?.message || "Không tải được đáp án.");
+    state.answers = { answers: data.answers || {} };
     return state.answers;
   }
 

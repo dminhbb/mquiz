@@ -1,11 +1,7 @@
 # Node.js dependencies
 node_modules/
 
-# Local database and temporary database files
-backend/data/
-*.sqlite
-*.sqlite-shm
-*.sqlite-wal
+# SQL migration files are tracked only inside supabase/.
 *.sql
 !supabase/delete_question_set_cascade.sql
 !supabase/real_exams_v2.sql
@@ -15,9 +11,7 @@ backend/data/
 !supabase/real_exam_public_leaderboard.sql
 
 # Generated deployment files
-backend/dist/
 dist/
-backend/export/
 *.zip
 
 # Local environment and secrets
