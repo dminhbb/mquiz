@@ -1638,16 +1638,17 @@
         ${hideConfirmation || `<section class="question-action-group">
           <div><h3>Thao tác</h3><p class="muted">Các hành động khả dụng theo trạng thái hiện tại.</p></div>
           <div class="question-action-list">
-            <button type="button" class="question-action-row" id="manageRealExamResults"><span><b>Quản lý kết quả</b><small>Xem 20 kết quả gần nhất và xuất Excel</small></span><span>→</span></button>
-            ${exam.status !== "hidden" ? `<button type="button" class="question-action-row" id="editRealExam"><span><b>Sửa thông tin Đợt thi</b><small>Giữ nguyên ID; thay đổi nguồn hoặc nguyên tắc sẽ tạo phiên bản Đề thi mới</small></span><span>→</span></button>` : ""}
-            ${exam.status === "scheduled" ? '<button type="button" class="question-action-row" id="regenerateRealExam"><span><b>Tạo lại Đề thi</b><small>Tạo ngẫu nhiên một Đề thi mới theo cấu hình hiện tại</small></span><span>↻</span></button>' : ""}
-            ${exam.status === "ended" ? '<button type="button" class="question-action-row" id="cloneRealExam"><span><b>Copy Đợt thi</b><small>Tạo Đợt thi độc lập với mã 5 số mới</small></span><span>→</span></button>' : ""}
-            ${exam.status === "ended" ? '<button type="button" class="question-action-row danger-row" id="hideRealExam"><span><b>Xóa Đợt thi</b><small>Giữ mã, nguồn đề và toàn bộ kết quả để tra cứu</small></span><span>→</span></button>' : ""}
-            ${exam.status === "hidden" ? '<button type="button" class="question-action-row" id="unhideRealExam"><span><b>Bỏ ẩn Đợt thi</b><small>Hiển thị lại Đợt thi thật này cho tất cả Admin</small></span><span>→</span></button>' : ""}
+            <button type="button" class="question-action-row" id="manageRealExamResults"><span class="question-action-icon"><i data-lucide="bar-chart-2" aria-hidden="true"></i></span><span><b>Quản lý kết quả</b><small>Xem 20 kết quả gần nhất và xuất Excel</small></span><i class="question-action-arrow" data-lucide="chevron-right" aria-hidden="true"></i></button>
+            ${exam.status !== "hidden" ? `<button type="button" class="question-action-row" id="editRealExam"><span class="question-action-icon"><i data-lucide="pencil" aria-hidden="true"></i></span><span><b>Sửa thông tin Đợt thi</b><small>Giữ nguyên ID; thay đổi nguồn hoặc nguyên tắc sẽ tạo phiên bản Đề thi mới</small></span><i class="question-action-arrow" data-lucide="chevron-right" aria-hidden="true"></i></button>` : ""}
+            ${exam.status === "scheduled" ? '<button type="button" class="question-action-row" id="regenerateRealExam"><span class="question-action-icon"><i data-lucide="refresh-ccw" aria-hidden="true"></i></span><span><b>Tạo lại Đề thi</b><small>Tạo ngẫu nhiên một Đề thi mới theo cấu hình hiện tại</small></span><i class="question-action-arrow" data-lucide="chevron-right" aria-hidden="true"></i></button>' : ""}
+            ${exam.status === "ended" ? '<button type="button" class="question-action-row" id="cloneRealExam"><span class="question-action-icon"><i data-lucide="copy" aria-hidden="true"></i></span><span><b>Copy Đợt thi</b><small>Tạo Đợt thi độc lập với mã 5 số mới</small></span><i class="question-action-arrow" data-lucide="chevron-right" aria-hidden="true"></i></button>' : ""}
+            ${exam.status === "ended" ? '<button type="button" class="question-action-row danger-row" id="hideRealExam"><span class="question-action-icon"><i data-lucide="trash-2" aria-hidden="true"></i></span><span><b>Xóa Đợt thi</b><small>Giữ mã, nguồn đề và toàn bộ kết quả để tra cứu</small></span><i class="question-action-arrow" data-lucide="chevron-right" aria-hidden="true"></i></button>' : ""}
+            ${exam.status === "hidden" ? '<button type="button" class="question-action-row" id="unhideRealExam"><span class="question-action-icon"><i data-lucide="rotate-ccw" aria-hidden="true"></i></span><span><b>Bỏ ẩn Đợt thi</b><small>Hiển thị lại Đợt thi thật này cho tất cả Admin</small></span><i class="question-action-arrow" data-lucide="chevron-right" aria-hidden="true"></i></button>' : ""}
           </div>
         </section>`}
         <footer class="question-wizard-footer"><button type="button" id="backToRealExamList">Quay lại danh sách</button><button type="button" data-close>Đóng</button></footer>
       </section>`;
+      window.lucide?.createIcons();
       panel.querySelector("#backToRealExamList").onclick = () => renderNext({ view: "list", examId: null, message: "", hideStep: 0 });
       panel.querySelector("#openRealExamShare").onclick = () => renderNext({ view: "share", hideStep: 0 });
       const runningToggle = panel.querySelector("#realExamRunningToggle");
@@ -1815,6 +1816,13 @@
     }
     const selectedConfig = normalizeRealSetConfig(sets, sourceExam?.sources || []);
     const defaultName = flow.clone ? `Copy ${sourceExam.name}` : (sourceExam?.name || "");
+    const poolTotals = (checkedIds) => sets
+      .filter((set) => checkedIds.includes(Number(set.id)))
+      .reduce((totals, set) => ({ total: totals.total + set.counts.total, multi: totals.multi + set.counts.multi }), { total: 0, multi: 0 });
+    const initialCheckedIds = selectedConfig.map((item) => Number(item.id));
+    const initialPool = poolTotals(initialCheckedIds);
+    const initialQuestionCount = Number(sourceExam?.target_question_count) || Math.min(Math.max(initialPool.total, 5), 20) || 5;
+    const initialMultiCount = sourceExam ? Number(sourceExam?.target_multi_count) || 0 : 0;
     panel.innerHTML = `<form id="realExamV2Form" class="real-exam-wizard settings-pane">
       <header class="question-wizard-header"><div><span class="settings-eyebrow">${flow.clone ? "Copy Đợt thi" : exam ? "Sửa thông tin Đợt thi" : "Tạo Đợt thi thật"}</span><h2>${esc(exam ? realExamDisplayName(exam) : "Cấu hình Đợt thi mới")}</h2></div><p class="muted">${exam ? `Lưu thay đổi sẽ tạo Phiên bản ${Number(exam.current_revision_no || 1) + 1}, giữ nguyên ID và kết quả cũ.` : "Lưu biểu mẫu sẽ tạo một Đề thi hoàn chỉnh từ danh sách ID câu hỏi."}</p></header>
       ${notice}
@@ -1843,15 +1851,15 @@
       <section class="settings-section">
         <div><h3>Nguyên tắc tạo đề</h3><p class="muted">X là tổng số câu đề; Y là số câu nhiều đáp án trong X.</p></div>
         <div class="grid two real-exam-row">
-          ${selectField("question_percent", "Số lượng câu hỏi", [30,50,70,100], sourceExam?.question_percent || 50, "%")}
-          ${selectField("multi_percent", "Tỷ lệ câu nhiều đáp án", [30,50,70,100], sourceExam?.multi_percent || 50, "%")}
-          ${selectField("timer_seconds", "Thời gian mỗi câu", [45,60,90,120], sourceExam?.timer_seconds || 60, "s")}
-          ${selectField("max_attempts", "Số lần thi tối đa", [1,2,3,4,5], sourceExam?.max_attempts || 1, "")}
+          <label>Số lượng câu hỏi<input type="number" name="question_count" min="5" max="${Math.max(5, initialPool.total)}" value="${initialQuestionCount}" required></label>
+          <label>Tỷ lệ câu nhiều đáp án<input type="number" name="multi_count" min="0" max="${Math.max(0, initialPool.multi)}" value="${initialMultiCount}" required></label>
+          ${selectField("timer_seconds", "Thời gian mỗi câu", [30,45,60,90,120], sourceExam?.timer_seconds || 60, "s")}
+          ${selectField("max_attempts", "Số lần thi tối đa", [1,2,3,4,5,6,7,8,9,10], sourceExam?.max_attempts || 1, "")}
         </div>
         <div class="scoring-field-row">
           <label>Cách tính điểm<select name="scoring_method">
-            <option value="1" ${Number(sourceExam?.scoring_method || 2) === 1 ? "selected" : ""}>Cách tính điểm 1</option>
-            <option value="2" ${Number(sourceExam?.scoring_method || 2) === 2 ? "selected" : ""}>Cách tính điểm 2</option>
+            <option value="1" ${Number(sourceExam?.scoring_method || 2) === 1 ? "selected" : ""}>Tính điểm chi tiết</option>
+            <option value="2" ${Number(sourceExam?.scoring_method || 2) === 2 ? "selected" : ""}>Tính điểm đơn giản</option>
           </select></label>
           <div class="scoring-help">
             <button type="button" class="scoring-help-button" aria-label="Xem chi tiết cách tính điểm" aria-expanded="false">?</button>
@@ -1867,16 +1875,21 @@
       else renderNext({ view: "list", clone: null });
     };
     wireRealSetControls(panel);
+    const questionCountInput = panel.querySelector('[name="question_count"]');
+    const multiCountInput = panel.querySelector('[name="multi_count"]');
     const updatePoolPreview = () => {
       const checkedIds = [...panel.querySelectorAll("[data-real-set-check]:checked")].map((input) => Number(input.dataset.realSetCheck));
-      const total = sets.filter((set) => checkedIds.includes(Number(set.id))).reduce((sum, set) => sum + set.counts.total, 0);
-      const percent = Number(panel.querySelector('[name="question_percent"]').value || 0);
-      const multiPercent = Number(panel.querySelector('[name="multi_percent"]').value || 0);
-      const target = total ? Math.max(1, Math.round(total * percent / 100)) : 0;
-      const multi = Math.round(target * multiPercent / 100);
-      panel.querySelector("#realExamPoolPreview").innerHTML = `<span><b>${total}</b> câu trong nguồn</span><span><b>${target}</b> câu trong Đề thi</span><span><b>${multi}</b> câu nhiều đáp án mục tiêu</span><span><b>${Math.max(0, target - multi)}</b> câu một đáp án</span>`;
+      const pool = poolTotals(checkedIds);
+      questionCountInput.max = String(Math.max(5, pool.total));
+      multiCountInput.max = String(Math.max(0, pool.multi));
+      if (Number(questionCountInput.value) > pool.total) questionCountInput.value = String(Math.max(5, pool.total));
+      if (Number(multiCountInput.value) > pool.multi) multiCountInput.value = String(pool.multi);
+      const target = Math.min(Math.max(5, Number(questionCountInput.value) || 0), Math.max(5, pool.total));
+      const multi = Math.min(Math.max(0, Number(multiCountInput.value) || 0), target);
+      panel.querySelector("#realExamPoolPreview").innerHTML = `<span><b>${pool.total}</b> câu trong nguồn</span><span><b>${target}</b> câu trong Đề thi</span><span><b>${multi}</b> câu nhiều đáp án mục tiêu</span><span><b>${Math.max(0, target - multi)}</b> câu một đáp án</span>`;
     };
-    panel.querySelectorAll("[data-real-set-check], [data-real-set-percent], [name='question_percent'], [name='multi_percent']").forEach((input) => input.addEventListener("change", updatePoolPreview));
+    panel.querySelectorAll("[data-real-set-check], [data-real-set-percent]").forEach((input) => input.addEventListener("change", updatePoolPreview));
+    [questionCountInput, multiCountInput].forEach((input) => input.addEventListener("input", updatePoolPreview));
     const scoringSelect = panel.querySelector('[name="scoring_method"]');
     const scoringHelp = panel.querySelector(".scoring-help");
     const scoringHelpButton = panel.querySelector(".scoring-help-button");
@@ -1906,12 +1919,21 @@
       if (!sources?.length || sources.reduce((sum, item) => sum + Number(item.percent || 0), 0) !== 100) {
         return showDialogError("Chọn nguồn câu hỏi và bảo đảm tổng tỷ lệ bằng 100%.");
       }
+      const pool = poolTotals(sources.map((item) => Number(item.id)));
+      const questionCount = Number(form.get("question_count"));
+      const multiCount = Number(form.get("multi_count"));
+      if (!Number.isInteger(questionCount) || questionCount < 5 || questionCount > Math.max(5, pool.total)) {
+        return showDialogError(`Số lượng câu hỏi phải từ 5 đến ${Math.max(5, pool.total)} (tổng số câu trong nguồn đã chọn).`);
+      }
+      if (!Number.isInteger(multiCount) || multiCount < 0 || multiCount > pool.multi) {
+        return showDialogError(`Tỷ lệ câu nhiều đáp án phải từ 0 đến ${pool.multi} (số câu nhiều đáp án trong nguồn đã chọn).`);
+      }
       Object.assign(payload, {
         start_at: startAt,
         end_at: endAt,
         sources,
-        question_percent: Number(form.get("question_percent")),
-        multi_percent: Number(form.get("multi_percent")),
+        question_count: questionCount,
+        multi_count: multiCount,
         timer_seconds: Number(form.get("timer_seconds")),
         max_attempts: Number(form.get("max_attempts")),
         scoring_method: Number(form.get("scoring_method") || 2)
@@ -2664,8 +2686,8 @@
 
   function scoringMethodTooltip(method) {
     return method === 2
-      ? `<b>Cách tính điểm 2</b><span>A = (số câu đúng / tổng câu) × 95. B = tổng câu × thời gian mỗi câu. C = ((B − thời gian làm bài) / B) × 5, tối đa 5. Điểm cuối = A + C.</span>`
-      : `<b>Cách tính điểm 1</b><span>75 điểm kiến thức có tính gần đúng; 10 điểm quy mô đề; 10 điểm tốc độ; 5 điểm đúng giờ.</span>`;
+      ? `<b>Tính điểm đơn giản</b><span>A = (số câu đúng / tổng câu) × 95. B = tổng câu × thời gian mỗi câu. C = ((B − thời gian làm bài) / B) × 5, tối đa 5. Điểm cuối = A + C.</span>`
+      : `<b>Tính điểm chi tiết</b><span>75 điểm kiến thức có tính gần đúng; 10 điểm quy mô đề; 10 điểm tốc độ; 5 điểm đúng giờ.</span>`;
   }
 
   function selectField(name, label, values, selected, suffix) {

@@ -573,9 +573,11 @@ h3 { font-size: 18px; }
 
 .progress > div {
   height: 100%;
-  width: var(--value, 0%);
+  width: 100%;
   background: var(--brand);
-  transition: width .2s ease;
+  transform: scaleX(var(--value, 0));
+  transform-origin: left;
+  transition: transform .2s ease;
 }
 
 .timer {

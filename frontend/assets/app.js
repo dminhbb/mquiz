@@ -1141,7 +1141,7 @@
         <div><b>Câu ${state.current + 1}/${state.selectedIds.length}</b><div class="muted">${state.mode === "real" ? "Thi thật" : state.mode === "mock" ? "Thi thử" : "Luyện tập"}</div></div>
         ${showTimer ? `<div class="timer ${locked ? "expired" : ""}" id="timer">${timerLabel(locked)}</div>` : ""}
       </div>
-      <div class="progress" style="--value:${progress}%"><div></div></div>
+      <div class="progress" style="--value:${progress / 100}"><div></div></div>
       <aside class="exam-monitor-warning ${state.focusViolationCount > FOCUS_WARNING_THRESHOLD ? "" : "hidden"}" id="examMonitorWarning" aria-live="polite">
         <strong>Cảnh báo chống gian lận</strong>
         <span>Không rời khỏi màn hình thi. Hệ thống đã ghi nhận <b data-focus-violation-count>${state.focusViolationCount}</b> lần rời màn hình.</span>
