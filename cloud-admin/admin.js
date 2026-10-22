@@ -2010,6 +2010,20 @@
     return normalizePercentConfig(base);
   }
 
+  /**
+   * Splits 100% evenly across the items; the first `100 % n` items get one extra point so the
+   * total is always exactly 100 (for example 34 / 33 / 33).
+   *
+   * @param {Array<{ id: number, percent: number }>} items
+   * @returns {Array<{ id: number, percent: number }>}
+   */
+  function distributePercentEvenly(items) {
+    if (!items.length) return [];
+    const base = Math.floor(100 / items.length);
+    const extra = 100 - base * items.length;
+    return items.map((item, index) => ({ ...item, percent: base + (index < extra ? 1 : 0) }));
+  }
+
   function normalizePercentConfig(items, changedId = null) {
     if (!items.length) return [];
     const clampPercent = (value) => Math.min(100, Math.max(0, Math.round(Number(value) || 0)));
@@ -2096,12 +2110,18 @@
   }
 
   function wireRealSetControls(root = document) {
-    const sync = (changedId = null) => {
+    /**
+     * @param {number | null} changedId Set whose percentage the admin just typed (kept as typed).
+     * @param {boolean} [splitEvenly] Reset every selected set to an even share (used when a set is enabled).
+     */
+    const sync = (changedId = null, splitEvenly = false) => {
       const checked = [...root.querySelectorAll("[data-real-set-check]:checked")].map((input) => ({
         id: Number(input.dataset.realSetCheck),
         percent: Number(root.querySelector(`[data-real-set-percent="${input.dataset.realSetCheck}"]`)?.value || 0)
       }));
-      const normalized = normalizePercentConfig(checked, changedId);
+      const normalized = splitEvenly
+        ? distributePercentEvenly(checked)
+        : normalizePercentConfig(checked, changedId);
       root.querySelectorAll("[data-real-set-percent]").forEach((input) => {
         const item = normalized.find((config) => Number(config.id) === Number(input.dataset.realSetPercent));
         input.disabled = !item;
@@ -2113,7 +2133,8 @@
       if (hint) hint.textContent = normalized.length ? `Tổng tỷ lệ đang chọn: ${total}%` : "Chọn ít nhất một Bộ câu hỏi khi bật Thi thật.";
     };
     root.querySelectorAll("[data-real-set-check]").forEach((input) => {
-      input.onchange = () => sync();
+      // Enabling or disabling a set re-shares 100% evenly across the selected sets.
+      input.onchange = () => sync(null, true);
     });
     root.querySelectorAll("[data-real-set-percent]").forEach((input) => {
       input.oninput = () => sync(Number(input.dataset.realSetPercent));
