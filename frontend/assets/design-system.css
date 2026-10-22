@@ -24,6 +24,9 @@
   --border-input: #cbd5e1;
   --border-strong: #94a3b8;
 
+  /* Typography Family */
+  --font-sans: "Inter", "Roboto", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+
   /* Typography Hierarchy */
   --text-heading: #1e293b;
   --text-body: #334155;
@@ -33,6 +36,12 @@
   --text-on-dark-muted: #cbd5e1;
   --sidebar-user-bg: #0f172a;
   --sidebar-user-border: rgba(255, 255, 255, 0.16);
+  --sidebar-ink: #ffffff;
+  --sidebar-ink-muted: #cbd5e1;
+  --sidebar-ink-subtle: #94a3b8;
+  --sidebar-border: rgba(255, 255, 255, 0.08);
+  --sidebar-item-hover: rgba(255, 255, 255, 0.08);
+  --sidebar-card-border: rgba(255, 255, 255, 0.16);
 
   /* Semantic States */
   --semantic-warning: #ea580c;
@@ -52,26 +61,31 @@
   /* Badges & Table Accents */
   --badge-info-bg: #dbeafe;
   --badge-info-text: #1e3a8a;
+  --badge-info-ink: #1e3a8a;
   --row-alt-bg: #f8fafc;
   --row-hover-bg: #f1f5f9;
 
   /* Metric Card Top-Bar Palette (from Design Reference) */
   --metric-1-bar: #f59e0b;
+  --metric-1-top: #f59e0b;
   --metric-1-bg: #fffbeb;
   --metric-1-border: #fcd34d;
   --metric-1-num: #0f172a;
 
   --metric-2-bar: #0284c7;
+  --metric-2-top: #0284c7;
   --metric-2-bg: #ffffff;
   --metric-2-border: #38bdf8;
   --metric-2-num: #0284c7;
 
   --metric-3-bar: #cbd5e1;
+  --metric-3-top: #cbd5e1;
   --metric-3-bg: #ffffff;
   --metric-3-border: #cbd5e1;
   --metric-3-num: #0f172a;
 
   --metric-4-bar: #ea580c;
+  --metric-4-top: #ea580c;
   --metric-4-bg: #fff7ed;
   --metric-4-border: #fdba74;
   --metric-4-num: #ea580c;
@@ -110,10 +124,12 @@
   --mark-correct: var(--semantic-success);
   --mark-correct-wash: var(--semantic-success-bg);
   --mark-wrong: var(--semantic-danger);
+  --mark-wrong-solid: var(--semantic-danger-strong);
   --mark-wrong-wash: var(--semantic-danger-bg);
   --mark-danger-wash: var(--semantic-danger-bg);
   --mark-warning: var(--semantic-warning);
   --mark-warning-wash: var(--semantic-warning-bg);
+  --mark-warning-border: var(--semantic-warning-border);
 
   --exam-line: var(--border-input);
   --exam-line-soft: var(--border-light);
@@ -236,12 +252,13 @@ html {
   scroll-behavior: smooth;
 }
 
+html,
 body,
 button,
 input,
 select,
 textarea {
-  font-family: "Inter", "Roboto", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family: var(--font-sans);
 }
 
 body {

@@ -27,7 +27,9 @@ body {
   min-height: 100dvh;
   background: var(--exam-paper);
   color: var(--exam-ink);
-  font: 15px/1.5 var(--font-sans);
+  font-family: var(--font-sans);
+  font-size: 15px;
+  line-height: 1.5;
   -webkit-font-smoothing: antialiased;
 }
 
