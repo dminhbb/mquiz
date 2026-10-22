@@ -669,7 +669,7 @@
     const visibleTimerOptions = realExam ? [state.timerSeconds] : TIMER_OPTIONS_SECONDS;
     renderShell(`<section class="leaderboard-shell setup-dashboard">
       <aside class="setup-sidebar">
-        <div class="setup-logo"><span>mq</span><b>mquiz</b></div>
+        <div class="setup-logo"><span>m</span><b>quiz</b></div>
         <nav class="setup-nav">
           ${realBlocked ? "" : `<button class="active" type="button"><span></span>Làm bài</button>`}
           <button id="leaderboardBtn" class="${realBlocked ? "active" : ""}" type="button"><span></span>Kết quả</button>
@@ -696,7 +696,7 @@
             </div>`}
             <p>${state.mode === "real" ? "Cấu hình do Admin thiết lập; lượt thi và kết quả được ghi nhận." : state.mode === "mock" ? "Thi thử và lưu kết quả hợp lệ vào bảng xếp hạng." : "Xem đánh giá đúng hoặc sai ngay sau mỗi câu trả lời."}</p>
           </div>
-          <button class="danger start-btn" id="startBtn">Bắt đầu</button>
+          <button class="primary start-btn" id="startBtn">Bắt đầu</button>
         </section>
         <div class="setup-board">
           <section class="setup-widget">
@@ -1061,7 +1061,7 @@
     const best = allStudentRankings[0];
     renderShell(`<section class="leaderboard-shell">
       <aside class="setup-sidebar">
-        <div class="setup-logo"><span>mq</span><b>mquiz</b></div>
+        <div class="setup-logo"><span>m</span><b>quiz</b></div>
         <nav class="setup-nav">
           <button id="backBtn" type="button"><span></span>Làm bài</button>
           <button class="active" type="button"><span></span>Kết quả</button>
