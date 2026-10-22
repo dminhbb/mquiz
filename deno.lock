@@ -1,0 +1,18 @@
+{
+  "version": "5",
+  "remote": {
+    "https://esm.sh/@supabase/supabase-js@2.118.0": "56fce2ec273698af8a739c03a005c4b2160e163e5d2c0ede05de7e9bd47e28b8"
+  },
+  "workspace": {
+    "packageJson": {
+      "dependencies": [
+        "npm:@eslint/js@^10.0.1",
+        "npm:deno@^2.9.6",
+        "npm:eslint@^10.13.0",
+        "npm:globals@^17.13.0",
+        "npm:prettier@^3.9.10",
+        "npm:supabase@^2.109.1"
+      ]
+    }
+  }
+}

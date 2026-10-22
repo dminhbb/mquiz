@@ -1,149 +1,128 @@
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+/**
+ * quiz-evaluate: answer feedback for Luyện tập (practice) only. Practice never creates
+ * quiz_attempts, so revealing answers here is part of the mode.
+ *
+ * - `check`  tells whether one question was answered correctly and returns its answer.
+ * - `review` scores a finished practice run for the results screen (nothing is saved).
+ *
+ * Thi thử and Thi thật are started and scored by the quiz-attempt function instead.
+ */
+import { normalizeAnswer, parseSelectedLetters, sameAnswer } from "../_shared/answers.ts";
+import { AppError, readJsonObject, serveJson } from "../_shared/http.ts";
+import {
+  filterBySets,
+  loadPublishedSpace,
+  loadSpaceQuestions,
+  loadSpaceQuestionsByIds,
+  minutesOfDay,
+  pickQuestions
+} from "../_shared/quiz-data.ts";
+import { enforceRateLimit } from "../_shared/rate-limit.ts";
+import { calculateAttemptScore, calculatePunctualityScore } from "../_shared/scoring.ts";
+import { createServiceClient } from "../_shared/supabase.ts";
+import type { SupabaseClient } from "../_shared/supabase.ts";
+import { requireIdList, requirePositiveInt, requireString } from "../_shared/validation.ts";
 
-const cors = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-  "Access-Control-Allow-Methods": "POST, OPTIONS"
-};
+const HTTP_NOT_FOUND = 404;
+const MAX_SLUG_LENGTH = 120;
+const MAX_TIMER_SECONDS = 600;
+const DEFAULT_TIMER_SECONDS = 60;
+/** Practice duration is reported by the browser and only affects the on-screen score. */
+const MAX_PRACTICE_DURATION_SECONDS = 24 * 60 * 60;
 
-Deno.serve(async (request) => {
-  if (request.method === "OPTIONS") return json({ ok: true });
-  try {
-    const url = Deno.env.get("SUPABASE_URL")!;
-    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const admin = createClient(url, serviceKey);
-    const body = await request.json();
-    const slug = String(body.slug || "");
-    const { data: space } = await admin.from("spaces").select("id,published").eq("slug", slug).single();
-    if (!space?.published) throw new Error("Space không tồn tại.");
-    const examCode = Number(body.exam_code || 0);
-    let realExamId = 0;
-    let realExamRevisionId = 0;
-    if (examCode) {
-      const { data: exam } = await admin
-        .from("real_exams")
-        .select("id,manual_running,current_revision_id")
-        .eq("code", examCode)
-        .eq("space_id", space.id)
-        .is("hidden_at", null)
-        .single();
-      if (!exam) throw new Error("Đợt thi thật không tồn tại.");
-      if (!exam.manual_running) throw new Error("Đợt thi đã tạm dừng.");
-      realExamId = Number(exam.id);
-      realExamRevisionId = Number(exam.current_revision_id || 0);
-    }
-
+Deno.serve(
+  serveJson(async (request) => {
+    const admin = createServiceClient();
+    const body = await readJsonObject(request);
     if (body.action === "check") {
-      let question: { id?: number; question_code?: number; correct_json: unknown } | null = null;
-      if (realExamId) {
-        const questionCode = Number(body.question_id);
-        const { data: snapshot, error: snapshotError } = await admin
-          .from("real_exam_revision_question_snapshots")
-          .select("question_code,correct_json")
-          .eq("revision_id", realExamRevisionId)
-          .eq("question_code", questionCode)
-          .maybeSingle();
-        if (!snapshotError && snapshot) {
-          question = snapshot;
-        } else {
-          // Backwards compatibility: active revisions created before the snapshot
-          // migration still have the canonical real_exam_question_refs relation.
-          const { data: reference } = await admin
-            .from("real_exam_question_refs")
-            .select("question_code")
-            .eq("real_exam_id", realExamId)
-            .eq("question_code", questionCode)
-            .maybeSingle();
-          if (reference) {
-            const response = await admin
-              .from("questions")
-              .select("question_code,correct_json")
-              .eq("question_code", questionCode)
-              .maybeSingle();
-            question = response.data;
-          }
-        }
-      } else {
-        const response = await admin
-          .from("questions")
-          .select("id,correct_json")
-          .eq("id", Number(body.question_id))
-          .eq("space_id", space.id)
-          .is("hidden_at", null)
-          .single();
-        question = response.data;
-      }
-      if (!question) throw new Error("Câu hỏi không tồn tại.");
-      const correct = normalized(question.correct_json);
-      const selected = normalized(body.selected);
-      return json({ correct, is_correct: sameAnswer(selected, correct) });
+      await enforceRateLimit(admin, request, "check");
+      return await checkQuestion(admin, body);
     }
-
-    if (body.action === "answers") {
-      const ids = Array.isArray(body.question_ids) ? body.question_ids.map(Number) : [];
-      let questions: Array<{ id?: number; question_code?: number; correct_json: unknown }> = [];
-      let queryError: unknown = null;
-      if (realExamId) {
-        const response = await admin
-          .from("real_exam_revision_question_snapshots")
-          .select("question_code,correct_json")
-          .eq("revision_id", realExamRevisionId)
-          .in("question_code", ids);
-        if (!response.error && response.data?.length) {
-          questions = response.data;
-        } else {
-          const { data: references, error: referenceError } = await admin
-            .from("real_exam_question_refs")
-            .select("question_code")
-            .eq("real_exam_id", realExamId)
-            .in("question_code", ids);
-          if (referenceError) throw referenceError;
-          const allowedCodes = (references || []).map((item) => Number(item.question_code));
-          if (allowedCodes.length) {
-            const fallback = await admin
-              .from("questions")
-              .select("question_code,correct_json")
-              .in("question_code", allowedCodes);
-            questions = fallback.data || [];
-            queryError = fallback.error;
-          }
-        }
-      } else {
-        const response = await admin
-          .from("questions")
-          .select("id,correct_json")
-          .eq("space_id", space.id)
-          .is("hidden_at", null)
-          .in("id", ids);
-        questions = response.data || [];
-        queryError = response.error;
-      }
-      if (queryError) throw queryError;
-      const answers: Record<string, string[]> = {};
-      for (const question of questions) {
-        const id = question.question_code ?? question.id;
-        if (id !== undefined) answers[id] = normalized(question.correct_json);
-      }
-      return json({ answers });
+    if (body.action === "review") {
+      await enforceRateLimit(admin, request, "review");
+      return await reviewPractice(admin, body);
     }
+    throw new AppError("Hành động không được hỗ trợ.");
+  })
+);
 
-    throw new Error("Unsupported action");
-  } catch (error) {
-    return json({ error: error instanceof Error ? error.message : "Unknown error" }, 400);
-  }
-});
+async function checkQuestion(admin: SupabaseClient, body: Record<string, unknown>) {
+  const space = await loadPublishedSpace(admin, requireString(body.slug, "Space", MAX_SLUG_LENGTH));
+  const questionId = requirePositiveInt(body.question_id, "Câu hỏi");
+  const selected = parseSelectedLetters(body.selected ?? []);
+  if (!selected) throw new AppError("Đáp án gửi lên không hợp lệ.");
 
-function normalized(value: unknown) {
-  return [...new Set(Array.isArray(value) ? value.map(String) : [])].sort();
+  const [question] = await loadSpaceQuestionsByIds(admin, space.id, [questionId], false);
+  if (!question) throw new AppError("Câu hỏi không tồn tại.", HTTP_NOT_FOUND);
+  const correct = normalizeAnswer(question.correct);
+  return { correct, is_correct: sameAnswer(normalizeAnswer(selected), correct) };
 }
 
-function sameAnswer(left: string[], right: string[]) {
-  return left.length === right.length && left.every((value, index) => value === right[index]);
-}
+async function reviewPractice(admin: SupabaseClient, body: Record<string, unknown>) {
+  const space = await loadPublishedSpace(admin, requireString(body.slug, "Space", MAX_SLUG_LENGTH));
+  const questionIds = requireIdList(body.question_ids, "Danh sách câu hỏi");
+  const setIds = requireIdList(body.question_set_ids ?? [], "Bộ câu hỏi", true);
+  const selections = parseSelections(body.selections, questionIds);
+  const questions = pickQuestions(
+    await loadSpaceQuestionsByIds(admin, space.id, questionIds),
+    questionIds
+  );
+  const bankQuestionCount = filterBySets(await loadSpaceQuestions(admin, space.id), setIds).length;
 
-function json(value: unknown, status = 200) {
-  return new Response(JSON.stringify(value), {
-    status,
-    headers: { ...cors, "Content-Type": "application/json" }
+  const requestedTimer = Number(body.timer_seconds);
+  const timerSeconds =
+    Number.isSafeInteger(requestedTimer) && requestedTimer > 0
+      ? Math.min(requestedTimer, MAX_TIMER_SECONDS)
+      : Number(space.timer_seconds || DEFAULT_TIMER_SECONDS);
+  const reportedDuration = Number(body.duration_seconds);
+  const durationSeconds = Number.isFinite(reportedDuration)
+    ? Math.min(MAX_PRACTICE_DURATION_SECONDS, Math.max(0, Math.round(reportedDuration)))
+    : 0;
+
+  const breakdown = calculateAttemptScore({
+    questions,
+    selections,
+    scoringMethod: 1,
+    bankQuestionCount: Math.max(bankQuestionCount, questions.length),
+    durationSeconds,
+    timerSeconds,
+    punctualityScore: calculatePunctualityScore(
+      space.exam_start_time,
+      space.allowed_late_minutes,
+      minutesOfDay(new Date())
+    )
   });
+
+  const answers: Record<string, string[]> = {};
+  for (const question of questions) answers[question.id] = [...question.correct];
+  return {
+    breakdown: {
+      score: breakdown.score,
+      scoring_method: breakdown.scoringMethod,
+      knowledge_score: breakdown.knowledgeScore,
+      coverage_score: breakdown.coverageScore,
+      duration_score: breakdown.durationScore,
+      punctuality_score: breakdown.punctualityScore,
+      correct_count: breakdown.correctCount,
+      wrong_count: breakdown.wrongCount
+    },
+    correctness: breakdown.correctness,
+    answers
+  };
+}
+
+/** Validates `{ "<questionId>": ["A", "C"] }` for the given question ids. */
+function parseSelections(value: unknown, questionIds: readonly number[]): Record<number, string[]> {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new AppError("Đáp án gửi lên không hợp lệ.");
+  }
+  const allowedIds = new Set(questionIds);
+  const selections: Record<number, string[]> = {};
+  for (const [rawId, rawLetters] of Object.entries(value)) {
+    const id = Number(rawId);
+    const letters = parseSelectedLetters(rawLetters);
+    if (!allowedIds.has(id) || !letters) throw new AppError("Đáp án gửi lên không hợp lệ.");
+    selections[id] = letters;
+  }
+  return selections;
 }

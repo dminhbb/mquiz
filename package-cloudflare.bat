@@ -11,34 +11,14 @@ echo.
 set "DIST_DIR=%~dp0dist-cloudflare"
 set "OUT_ZIP=%~dp0mquiz-cloudflare.zip"
 
-if exist "%DIST_DIR%" (
-  echo [1/5] Xoa thu muc dist cu...
-  rd /s /q "%DIST_DIR%"
-)
-mkdir "%DIST_DIR%"
-
-echo [2/5] Sao chep frontend...
-xcopy /e /i /q /y "frontend\*" "%DIST_DIR%\" > nul
+echo [1/3] Build ban phat hanh (scripts\build-static.js)...
+node scripts\build-static.js --out dist-cloudflare --keep-redirects
 if errorlevel 1 (
-  echo [LOI] Khong the sao chep thu muc frontend.
+  echo [LOI] Build that bai.
   goto :failed
 )
 
-echo [3/5] Sao chep cloud-admin vao /admin...
-mkdir "%DIST_DIR%\admin"
-xcopy /e /i /q /y "cloud-admin\*" "%DIST_DIR%\admin\" > nul
-if errorlevel 1 (
-  echo [LOI] Khong the sao chep thu muc cloud-admin.
-  goto :failed
-)
-
-echo [4/5] Tao file _redirects...
-(
-  echo /admin/*    /admin/index.html   200
-  echo /*           /index.html         200
-) > "%DIST_DIR%\_redirects"
-
-echo [5/5] Tao file ZIP...
+echo [2/3] Tao file ZIP...
 if exist "%OUT_ZIP%" del /f /q "%OUT_ZIP%"
 
 powershell -NoProfile -Command "Compress-Archive -Path '%DIST_DIR%\*' -DestinationPath '%OUT_ZIP%' -Force"
@@ -47,6 +27,7 @@ if errorlevel 1 (
   goto :failed
 )
 
+echo [3/3] Don dep thu muc tam...
 rd /s /q "%DIST_DIR%"
 
 echo.

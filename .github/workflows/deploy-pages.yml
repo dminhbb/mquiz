@@ -1,5 +1,9 @@
 name: Deploy GitHub Pages
 
+# NOTE: GitHub Pages cannot send HTTP response headers, so the CSP and other security
+# headers in frontend/_headers are NOT applied here. Cloudflare (wrangler.toml) is the
+# production target that enforces them; use this workflow only as a secondary mirror.
+
 on:
   push:
     branches:
@@ -27,14 +31,21 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Never publish a build that fails lint, tests or the security configuration checks.
+      - name: Run all checks
+        run: npm run check
+
       - name: Prepare static website
-        shell: bash
-        run: |
-          mkdir -p _site/admin
-          cp -R frontend/. _site/
-          cp -R cloud-admin/. _site/admin/
-          touch _site/.nojekyll
-          cp frontend/index.html _site/404.html
+        run: node scripts/build-static.js --out _site --keep-redirects --spa-404
 
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v6

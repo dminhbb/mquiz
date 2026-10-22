@@ -6,10 +6,7 @@ const { execFileSync } = require("child_process");
 const projectRoot = path.resolve(__dirname, "..");
 const outputDir = path.join(projectRoot, "dist");
 const port = Number(process.env.PORT || 8787);
-const watchedRoots = [
-  path.join(projectRoot, "frontend"),
-  path.join(projectRoot, "cloud-admin")
-];
+const watchedRoots = [path.join(projectRoot, "frontend"), path.join(projectRoot, "cloud-admin")];
 const contentTypes = {
   ".css": "text/css; charset=utf-8",
   ".html": "text/html; charset=utf-8",
@@ -23,6 +20,30 @@ function build() {
     cwd: projectRoot,
     stdio: "inherit"
   });
+}
+
+/**
+ * Reads the global (`/*`) block of `_headers` so the dev server sends the same security
+ * headers as Cloudflare (CSP, nosniff, ...).
+ *
+ * @returns {Record<string, string>}
+ */
+function loadGlobalHeaders() {
+  const headersPath = path.join(outputDir, "_headers");
+  if (!fs.existsSync(headersPath)) return {};
+  const headers = {};
+  let inGlobalBlock = false;
+  for (const line of fs.readFileSync(headersPath, "utf8").split(/\r?\n/)) {
+    if (!line.trim()) continue;
+    if (!/^\s/.test(line)) {
+      inGlobalBlock = line.trim() === "/*";
+      continue;
+    }
+    const separator = line.indexOf(":");
+    if (inGlobalBlock && separator > 0)
+      headers[line.slice(0, separator).trim()] = line.slice(separator + 1).trim();
+  }
+  return headers;
 }
 
 function watchDirectory(directory, onChange) {
@@ -62,23 +83,27 @@ const scheduleRebuild = () => {
 };
 watchedRoots.forEach((directory) => watchDirectory(directory, scheduleRebuild));
 
-http.createServer((request, response) => {
-  let filePath;
-  try {
-    filePath = resolveFile(request.url || "/");
-  } catch {
-    response.writeHead(400).end("Bad request");
-    return;
-  }
-  if (!filePath || !fs.existsSync(filePath)) {
-    response.writeHead(404).end("Not found");
-    return;
-  }
-  response.writeHead(200, {
-    "Content-Type": contentTypes[path.extname(filePath).toLowerCase()] || "application/octet-stream",
-    "Cache-Control": "no-store"
+http
+  .createServer((request, response) => {
+    let filePath;
+    try {
+      filePath = resolveFile(request.url || "/");
+    } catch {
+      response.writeHead(400).end("Bad request");
+      return;
+    }
+    if (!filePath || !fs.existsSync(filePath)) {
+      response.writeHead(404).end("Not found");
+      return;
+    }
+    response.writeHead(200, {
+      ...loadGlobalHeaders(),
+      "Content-Type":
+        contentTypes[path.extname(filePath).toLowerCase()] || "application/octet-stream",
+      "Cache-Control": "no-store"
+    });
+    fs.createReadStream(filePath).pipe(response);
+  })
+  .listen(port, "127.0.0.1", () => {
+    process.stdout.write(`mquiz đang chạy tại http://127.0.0.1:${port}\n`);
   });
-  fs.createReadStream(filePath).pipe(response);
-}).listen(port, "127.0.0.1", () => {
-  process.stdout.write(`mquiz đang chạy tại http://127.0.0.1:${port}\n`);
-});

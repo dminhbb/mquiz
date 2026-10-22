@@ -1,3 +1,27 @@
+/**
+ * @typedef {"single" | "multi"} QuestionType
+ *
+ * @typedef {object} Question A question as shown to students (never includes the answer).
+ * @property {number} id Question id (question_code for Thi thật).
+ * @property {QuestionType} type
+ * @property {number} question_set_id 0 when the question has no set.
+ * @property {string} content
+ * @property {Record<string, string>} options Option text by letter.
+ *
+ * @typedef {object} LeaderboardRow One saved attempt as returned by the leaderboard queries.
+ * @property {string} student_name
+ * @property {string} [student_name_key]
+ * @property {string} group_name
+ * @property {"mock" | "real"} mode
+ * @property {number} score
+ * @property {number} total_questions
+ * @property {number} correct_count
+ * @property {number} wrong_count
+ * @property {number} duration_seconds
+ * @property {string} started_at
+ * @property {string} submitted_at
+ */
+
 (function () {
   const app = document.getElementById("app");
   const basePath = window.__SQ_BASE_PATH__ || "";
@@ -9,6 +33,20 @@
   const APP_VERSION_CHECK_INTERVAL_MS = 60_000;
   const MAX_FOCUS_VIOLATION_COUNT = 1_000;
   const FOCUS_WARNING_THRESHOLD = 2;
+  const LEADERBOARD_RANGE_DAYS = 30;
+  const MS_PER_DAY = 24 * 60 * 60 * 1000;
+  const LEADERBOARD_MOCK_ROW_LIMIT = 1_000;
+  const LEADERBOARD_VISIBLE_ROWS = 15;
+  const TIMER_OPTIONS_SECONDS = [15, 30, 45, 60, 90, 120];
+  const QUESTION_PERCENT_OPTIONS = [30, 50, 70, 100];
+  const DEFAULT_TIMER_SECONDS = 60;
+  const DEFAULT_QUESTION_PERCENT = 50;
+  const MIN_QUESTION_COUNT = 5;
+  const QUESTION_COUNT_STEP = 5;
+  const TOAST_DURATION_MS = 3_600;
+  const HTTP_CLIENT_ERROR_MIN = 400;
+  const HTTP_SERVER_ERROR_MIN = 500;
+  const HTTP_TOO_MANY_REQUESTS = 429;
   const COPY_PROTECTED_SELECTOR = "[data-copy-protected]";
   const COPY_PROTECTION_EVENT_NAMES = ["contextmenu", "copy", "dragstart", "selectstart"];
   const state = {
@@ -35,6 +73,7 @@
     done: false,
     resultSaveStatus: "",
     scoreBreakdown: null,
+    attemptId: "",
     leaderboardVisible: false,
     leaderboardStatus: "",
     leaderboardRows: [],
@@ -76,11 +115,13 @@
   const sorted = (letters) => [...new Set(letters || [])].sort();
   const currentQuestion = () => state.space.questions.find((question) => question.id === state.selectedIds[state.current]);
   const isRealExamExperience = () => state.entryKind === "real" && Boolean(state.space?.real_exam?.enabled);
-  const currentAttemptMode = () => isRealExamExperience()
-    ? "real"
-    : state.mode === "practice" ? "practice" : "mock";
   let supabaseClient = null;
 
+  /**
+   * Routes the current URL to the space, real-exam, welcome or not-found screen.
+   *
+   * @returns {Promise<void>}
+   */
   async function boot() {
     renderShell("<div class='center'><div class='muted'>Đang tải...</div></div>");
     let pathname = location.pathname;
@@ -123,6 +164,12 @@
     return renderNotFound();
   }
 
+  /**
+   * Public status of a Space slug (exists / published).
+   *
+   * @param {string} slug
+   * @returns {Promise<{ exists?: boolean, published?: boolean } | null>}
+   */
   async function getCloudSpaceStatus(slug) {
     const client = getSupabaseClient();
     if (!client) return null;
@@ -134,6 +181,12 @@
     }
   }
 
+  /**
+   * Loads a published Space with its groups, question sets and questions into state.
+   *
+   * @param {string} slug
+   * @returns {Promise<boolean>} True when the Space was loaded.
+   */
   async function loadCloudSpace(slug) {
     const client = getSupabaseClient();
     if (!client) return false;
@@ -193,6 +246,12 @@
     }
   }
 
+  /**
+   * Loads a running real exam (metadata and questions) by its 5-digit code into state.
+   *
+   * @param {number} code
+   * @returns {Promise<boolean>} True when the exam was loaded.
+   */
   async function loadCloudRealExam(code) {
     const client = getSupabaseClient();
     if (!client) return false;
@@ -207,7 +266,7 @@
       state.space = {
         id: examSpace.id,
         name: examSpace.name,
-        timer_seconds: Number(data.timer_seconds || 60),
+        timer_seconds: Number(data.timer_seconds || DEFAULT_TIMER_SECONDS),
         groups: Array.isArray(examSpace.groups) ? examSpace.groups : [],
         question_sets: [{ id: 0, name: `Đề thi #${String(data.code).padStart(5, "0")}` }],
         questions: questions.map((question) => ({
@@ -229,7 +288,7 @@
           manual_running: data.manual_running !== false,
           scoring_method: Number(data.scoring_method || 2),
           question_percent: 100,
-          timer_seconds: Number(data.timer_seconds || 60),
+          timer_seconds: Number(data.timer_seconds || DEFAULT_TIMER_SECONDS),
           multi_percent: 100,
           max_attempts: Number(data.max_attempts || 1),
           question_sets: [],
@@ -244,6 +303,11 @@
     }
   }
 
+  /**
+   * Applies defaults (groups, question sets, mode, timer) after a Space or exam is loaded.
+   *
+   * @returns {void}
+   */
   function configureLoadedSpace() {
     const groups = Array.isArray(state.space.groups)
       ? [...state.space.groups].sort((left, right) => left.localeCompare(right, "vi", {
@@ -268,11 +332,11 @@
     resetGroupSelection();
     if (isRealExamExperience()) {
       state.mode = "real";
-      state.percent = Number(state.space.real_exam.question_percent || 50);
-      state.timerSeconds = Number(state.space.real_exam.timer_seconds || 60);
+      state.percent = Number(state.space.real_exam.question_percent || DEFAULT_QUESTION_PERCENT);
+      state.timerSeconds = Number(state.space.real_exam.timer_seconds || DEFAULT_TIMER_SECONDS);
     } else {
       state.mode = "mock";
-      state.timerSeconds = Number(state.space.timer_seconds || 60);
+      state.timerSeconds = Number(state.space.timer_seconds || DEFAULT_TIMER_SECONDS);
     }
   }
 
@@ -282,13 +346,20 @@
     syncAppUpdateToast();
   }
 
+  /**
+   * Shows a transient message; replaces any previous toast.
+   *
+   * @param {string} message
+   * @param {"info" | "warning"} [tone]
+   * @returns {void}
+   */
   function showToast(message, tone = "info") {
     document.querySelectorAll(".toast:not(.app-update-toast)").forEach((item) => item.remove());
     const toast = document.createElement("div");
     toast.className = `toast ${tone}`;
     toast.textContent = message;
     document.body.appendChild(toast);
-    window.setTimeout(() => toast.remove(), 3600);
+    window.setTimeout(() => toast.remove(), TOAST_DURATION_MS);
   }
 
   function isQuizInProgress() {
@@ -439,9 +510,17 @@
     document.getElementById("retrySpaceBtn").onclick = () => location.reload();
   }
 
+  /**
+   * Number of questions for a percentage: a multiple of 5, at least 5, never above `total`.
+   * Must stay identical to calcQuestionCount in supabase/functions/_shared/scoring.ts.
+   *
+   * @param {number} total Size of the question pool.
+   * @param {number} percent Configured share of the pool.
+   * @returns {number}
+   */
   function calcQuestionCount(total, percent) {
     const raw = total * percent / 100;
-    return Math.min(total, Math.max(5, Math.round(raw / 5) * 5));
+    return Math.min(total, Math.max(MIN_QUESTION_COUNT, Math.round(raw / QUESTION_COUNT_STEP) * QUESTION_COUNT_STEP));
   }
 
   function selectedQuestionSetIdsForMode() {
@@ -472,10 +551,22 @@
     renderSetup();
   }
 
+  /**
+   * Trims and collapses whitespace in a student name.
+   *
+   * @param {unknown} value
+   * @returns {string}
+   */
   function normalizeStudentName(value) {
     return String(value || "").trim().replace(/\s+/g, " ");
   }
 
+  /**
+   * Case-insensitive key identifying a student on leaderboards and attempt limits.
+   *
+   * @param {unknown} value
+   * @returns {string}
+   */
   function studentNameKey(value) {
     return normalizeStudentName(value).toLocaleLowerCase("vi-VN");
   }
@@ -501,19 +592,56 @@
     return supabaseClient;
   }
 
+  /**
+   * Calls a quiz Edge Function and surfaces the server's error message.
+   *
+   * @param {"quiz-attempt" | "quiz-evaluate"} name
+   * @param {Record<string, unknown>} body
+   * @returns {Promise<any>} Parsed JSON response.
+   * @throws {Error} With `status` set to the HTTP status when the server rejected the call.
+   */
+  async function invokeQuizFunction(name, body) {
+    const client = getSupabaseClient();
+    if (!client) throw new Error("Chưa cấu hình Supabase.");
+    const { data, error } = await client.functions.invoke(name, { body });
+    if (error) {
+      const failure = new Error(error.message || "Không thể kết nối máy chủ.");
+      failure.status = Number(error.context?.status) || 0;
+      try {
+        const payload = await error.context?.json();
+        if (payload?.error) failure.message = payload.error;
+      } catch {
+        // The response had no JSON body; keep the generic transport message.
+      }
+      throw failure;
+    }
+    if (data?.error) throw new Error(data.error);
+    return data;
+  }
+
+  /**
+   * True when retrying the same request cannot succeed (a definitive server rejection).
+   *
+   * @param {Error & { status?: number }} error
+   * @returns {boolean}
+   */
+  function isTerminalRequestError(error) {
+    const status = Number(error?.status) || 0;
+    return status >= HTTP_CLIENT_ERROR_MIN && status < HTTP_SERVER_ERROR_MIN && status !== HTTP_TOO_MANY_REQUESTS;
+  }
+
   function renderSetup() {
     stopTimer();
-    const timerOptions = [15, 30, 45, 60, 90, 120];
     const realExam = isRealExamExperience();
     if (realExam) {
       state.mode = "real";
-      state.percent = Number(state.space.real_exam.question_percent || 50);
-      state.timerSeconds = Number(state.space.real_exam.timer_seconds || 60);
+      state.percent = Number(state.space.real_exam.question_percent || DEFAULT_QUESTION_PERCENT);
+      state.timerSeconds = Number(state.space.real_exam.timer_seconds || DEFAULT_TIMER_SECONDS);
     }
     const questionPool = questionPoolForMode();
     const total = questionPool.length;
     if (state.mode === "mock" && state.timerSeconds === null) {
-      state.timerSeconds = Number(state.space.timer_seconds || 60);
+      state.timerSeconds = Number(state.space.timer_seconds || DEFAULT_TIMER_SECONDS);
     }
     const savedName = normalizeStudentName(state.studentName);
     const realAttempts = getRealAttemptCount(savedName);
@@ -537,8 +665,8 @@
     } else if (realExam && (realWindow.phase === "after" || realEnded)) {
       realAvailabilityNotice = `<section class="real-exam-availability ended" role="status"><span class="real-exam-space-name">${esc(realSpaceName)}</span><strong>${esc(realExamIdentity)}</strong><p>Đã hết thời gian đợt thi</p><p>${esc(realWindowLabel)}</p></section>`;
     }
-    const visibleQuestionPercents = realExam ? [state.percent] : [30, 50, 70, 100];
-    const visibleTimerOptions = realExam ? [state.timerSeconds] : timerOptions;
+    const visibleQuestionPercents = realExam ? [state.percent] : QUESTION_PERCENT_OPTIONS;
+    const visibleTimerOptions = realExam ? [state.timerSeconds] : TIMER_OPTIONS_SECONDS;
     renderShell(`<section class="leaderboard-shell setup-dashboard">
       <aside class="setup-sidebar">
         <div class="setup-logo"><span>mq</span><b>mquiz</b></div>
@@ -652,6 +780,11 @@
     return `sq_real_attempts_${state.slug}_${instance}_${studentNameKey(studentName)}`;
   }
 
+  /**
+   * Schedule state of the loaded real exam relative to the current time.
+   *
+   * @returns {{ start: Date | null, end: Date | null, isOpen: boolean, isWithinTime: boolean, phase: "before" | "within" | "after" | "invalid" }}
+   */
   function getRealExamWindow() {
     const start = state.space?.real_exam?.start_at ? new Date(state.space.real_exam.start_at) : null;
     const end = state.space?.real_exam?.end_at ? new Date(state.space.real_exam.end_at) : null;
@@ -679,11 +812,24 @@
     });
   }
 
+  /**
+   * Attempts used by a student in this exam according to this browser (the server is authoritative).
+   *
+   * @param {string} studentName
+   * @returns {number}
+   */
   function getRealAttemptCount(studentName) {
     if (!studentName) return 0;
     return Math.max(0, Number(localStorage.getItem(realAttemptStorageKey(studentName)) || 0));
   }
 
+  /**
+   * Picks `questionCount` questions, keeping the configured share of multi-answer questions.
+   *
+   * @param {Question[]} pool
+   * @param {number} questionCount
+   * @returns {number[]} Shuffled question ids.
+   */
   function selectByMultiPercent(pool, questionCount) {
     const multiQuestions = pool.filter((question) => question.type === "multi");
     const singleQuestions = pool.filter((question) => question.type !== "multi");
@@ -698,6 +844,12 @@
     return shuffle([...selectedMulti, ...selectedSingle, ...fillers].map((question) => question.id));
   }
 
+  /**
+   * Draws the question ids for a real-exam attempt.
+   *
+   * @param {number} questionCount
+   * @returns {number[]}
+   */
   function selectRealExamQuestionIds(questionCount) {
     const config = (state.space.real_exam?.question_sets || [])
       .map((item) => ({ id: Number(item.id ?? item.question_set_id), percent: Number(item.percent) }))
@@ -722,6 +874,12 @@
     return shuffle(selected.slice(0, questionCount));
   }
 
+  /**
+   * Fisher-Yates shuffle returning a new array.
+   *
+   * @param {T[]} items
+   * @returns {T[]}
+   */
   function shuffle(items) {
     const next = [...items];
     for (let index = next.length - 1; index > 0; index -= 1) {
@@ -731,6 +889,11 @@
     return next;
   }
 
+  /**
+   * Validates the form, registers the attempt on the server (Thi thử / Thi thật) and shows the first question.
+   *
+   * @returns {Promise<void>}
+   */
   async function startQuiz() {
     const name = normalizeStudentName(state.studentName);
     if (!name) {
@@ -793,12 +956,32 @@
       </dl>`
     });
     if (!confirmed) return;
-    if (state.mode === "real") {
-      const attempts = getRealAttemptCount(name);
-      localStorage.setItem(realAttemptStorageKey(name), String(attempts + 1));
-      state.selectedIds = selectRealExamQuestionIds(questionCount);
-    } else {
-      state.selectedIds = shuffle(questionPool.map((question) => question.id)).slice(0, questionCount);
+    state.selectedIds = state.mode === "real"
+      ? selectRealExamQuestionIds(questionCount)
+      : shuffle(questionPool.map((question) => question.id)).slice(0, questionCount);
+    state.attemptId = "";
+    if (state.mode !== "practice") {
+      try {
+        const session = await invokeQuizFunction("quiz-attempt", {
+          action: "start",
+          slug: state.slug,
+          mode: state.mode,
+          exam_code: state.examCode,
+          student_name: name,
+          group_name: state.groupName,
+          question_ids: state.selectedIds,
+          question_set_ids: state.mode === "mock" ? selectedQuestionSetIdsForMode() : undefined,
+          timer_seconds: state.timerSeconds
+        });
+        state.attemptId = String(session.attempt_id || "");
+      } catch (error) {
+        showToast(error.message, "warning");
+        if (state.mode === "real") renderSetup();
+        return;
+      }
+      if (state.mode === "real") {
+        localStorage.setItem(realAttemptStorageKey(name), String(getRealAttemptCount(name) + 1));
+      }
     }
     state.current = 0;
     state.selections = {};
@@ -817,6 +1000,11 @@
     renderQuestion(true);
   }
 
+  /**
+   * Loads and renders the leaderboard for the current Space or real exam.
+   *
+   * @returns {Promise<void>}
+   */
   async function showLeaderboard() {
     state.leaderboardVisible = true;
     state.leaderboardStatus = "Đang tải bảng xếp hạng...";
@@ -830,7 +1018,7 @@
     }
 
     try {
-      const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+      const cutoff = new Date(Date.now() - LEADERBOARD_RANGE_DAYS * MS_PER_DAY).toISOString();
       let data;
       let error;
       if (isRealExamExperience()) {
@@ -845,7 +1033,7 @@
           .eq("mode", "mock")
           .gte("submitted_at", cutoff)
           .order("submitted_at", { ascending: false })
-          .limit(1000));
+          .limit(LEADERBOARD_MOCK_ROW_LIMIT));
       }
       if (error) throw error;
       state.leaderboardRows = Array.isArray(data) ? data : [];
@@ -853,7 +1041,7 @@
         ? ""
         : isRealExamExperience()
           ? "Chưa có kết quả cho Đợt thi thật này."
-          : "Chưa có kết quả Thi thử trong 30 ngày qua.";
+          : `Chưa có kết quả Thi thử trong ${LEADERBOARD_RANGE_DAYS} ngày qua.`;
     } catch (error) {
       state.leaderboardRows = [];
       state.leaderboardStatus = `Không tải được bảng xếp hạng: ${error.message || "Lỗi không xác định"}`;
@@ -888,7 +1076,7 @@
           <div>
             <p class="setup-kicker">Trung tâm Hỗ trợ Tín dụng</p>
             <h1>Bảng xếp hạng</h1>
-            <p class="muted">${esc(state.space?.name || "")} · ${isRealExamExperience() ? `Đợt thi thật #${esc(state.space?.real_exam?.code || "")}` : "Kết quả Thi thử trong 30 ngày qua"}</p>
+            <p class="muted">${esc(state.space?.name || "")} · ${isRealExamExperience() ? `Đợt thi thật #${esc(state.space?.real_exam?.code || "")}` : `Kết quả Thi thử trong ${LEADERBOARD_RANGE_DAYS} ngày qua`}</p>
           </div>
           <button class="primary" id="backTopBtn">Quay lại</button>
         </header>
@@ -970,6 +1158,12 @@
       .sort((a, b) => a.localeCompare(b, "vi"));
   }
 
+  /**
+   * Keeps each student's highest-scoring row, sorted best first.
+   *
+   * @param {LeaderboardRow[]} rows
+   * @returns {LeaderboardRow[]}
+   */
   function bestAttemptsByStudent(rows) {
     const bestByStudent = new Map();
     (rows || []).forEach((row) => {
@@ -981,6 +1175,12 @@
     return [...bestByStudent.values()].sort(compareAttempt);
   }
 
+  /**
+   * Ranks groups by the average of their members' best scores.
+   *
+   * @param {LeaderboardRow[]} rows
+   * @returns {Array<{ groupName: string, memberCount: number, averageScore: number, totalCorrect: number }>}
+   */
   function buildGroupRankings(rows) {
     const groups = new Map();
     bestAttemptsByStudent(rows).forEach((row) => {
@@ -1006,7 +1206,7 @@
   function renderPodium(title, rows, getName, getValue) {
     const places = [1, 0, 2];
     const medals = ["🥇", "🥈", "🥉"];
-    return `<section class="leaderboard-podium" aria-label="${esc(title)}"><div class="podium-heading"><p>${esc(title)}</p><span>${isRealExamExperience() ? "Theo Đợt thi" : "30 ngày"}</span></div>
+    return `<section class="leaderboard-podium" aria-label="${esc(title)}"><div class="podium-heading"><p>${esc(title)}</p><span>${isRealExamExperience() ? "Theo Đợt thi" : `${LEADERBOARD_RANGE_DAYS} ngày`}</span></div>
       <div class="podium-stage">${places.map((index) => {
         const row = rows[index];
         const place = index + 1;
@@ -1018,7 +1218,7 @@
   function renderGroupLeaderboard(groups) {
     if (!groups.length) return state.leaderboardStatus ? "" : '<div class="status-panel">Chưa có Nhóm nào đủ dữ liệu để xếp hạng.</div>';
     return `<section class="panel leaderboard-group-panel" role="tabpanel" aria-labelledby="leaderboardGroupsTab">
-      <div class="space-between"><div><h2>Xếp hạng Nhóm</h2><p class="muted">Điểm trung bình tính trên kết quả cao nhất của mỗi học viên.</p></div><span class="leaderboard-range-note">${isRealExamExperience() ? "Toàn bộ Đợt thi" : "30 ngày gần nhất"}</span></div>
+      <div class="space-between"><div><h2>Xếp hạng Nhóm</h2><p class="muted">Điểm trung bình tính trên kết quả cao nhất của mỗi học viên.</p></div><span class="leaderboard-range-note">${isRealExamExperience() ? "Toàn bộ Đợt thi" : `${LEADERBOARD_RANGE_DAYS} ngày gần nhất`}</span></div>
       <div class="leaderboard-group-table"><div class="leaderboard-group-row leaderboard-group-head"><span>#</span><span>Nhóm</span><span>Học viên</span><span>Tổng câu đúng</span><span>Điểm trung bình</span></div>
         ${groups.map((group, index) => `<div class="leaderboard-group-row ${index < 3 ? "top-rank" : ""}"><span class="rank">${index + 1}</span><span><b>${esc(group.groupName)}</b></span><span>${group.memberCount}</span><span>${group.totalCorrect}</span><span><b>${formatScore(group.averageScore)}</b></span></div>`).join("")}
       </div>
@@ -1028,10 +1228,10 @@
   function renderRealStudentLeaderboard(rows) {
     if (!rows.length) return state.leaderboardStatus ? "" : '<div class="status-panel">Không có kết quả phù hợp với bộ lọc đã chọn.</div>';
     const expanded = Boolean(state.expandedDays.realStudentLeaderboard);
-    const visibleRows = expanded ? rows : rows.slice(0, 15);
+    const visibleRows = expanded ? rows : rows.slice(0, LEADERBOARD_VISIBLE_ROWS);
     return `<section class="panel leaderboard-day" role="tabpanel" aria-labelledby="leaderboardStudentsTab">
       <div class="space-between"><div><h2>Xếp hạng Học viên</h2><p class="muted">Mỗi học viên chỉ lấy kết quả cao nhất trong Đợt thi.</p></div>
-        ${rows.length > 15 ? `<button class="ghost" id="realStudentLeaderboardExpand">${expanded ? "Thu gọn" : "Xem toàn bộ"}</button>` : ""}
+        ${rows.length > LEADERBOARD_VISIBLE_ROWS ? `<button class="ghost" id="realStudentLeaderboardExpand">${expanded ? "Thu gọn" : "Xem toàn bộ"}</button>` : ""}
       </div>
       <div class="leaderboard-table"><div class="leaderboard-row leaderboard-head"><span>#</span><span>Tên học viên</span><span>Group</span><span>Chế độ</span><span>Thời gian làm bài</span><span>Giờ làm bài</span><span>Đúng</span><span>Sai</span><span>Tổng</span><span>Điểm</span></div>
         ${visibleRows.map((row, index) => renderLeaderboardRow(row, index)).join("")}
@@ -1039,6 +1239,12 @@
     </section>`;
   }
 
+  /**
+   * Formats a score for display with vi-VN grouping and no decimals.
+   *
+   * @param {unknown} value
+   * @returns {string}
+   */
   function formatScore(value) {
     return Number(value || 0).toLocaleString("vi-VN", { maximumFractionDigits: 0 });
   }
@@ -1074,11 +1280,11 @@
 
   function renderLeaderboardDay(dayData) {
     const expanded = Boolean(state.expandedDays[dayData.day]);
-    const visibleRows = expanded ? dayData.rows : dayData.rows.slice(0, 15);
+    const visibleRows = expanded ? dayData.rows : dayData.rows.slice(0, LEADERBOARD_VISIBLE_ROWS);
     return `<div class="panel leaderboard-day">
       <div class="space-between">
         <div><h2>${esc(dayData.day)}</h2><p class="muted">${dayData.rows.length} học viên · ${dayData.totalRaw} lượt thi</p></div>
-        ${dayData.rows.length > 15 ? `<button class="ghost" data-expand-day="${esc(dayData.day)}">${expanded ? "Thu gọn" : "Xem toàn bộ"}</button>` : ""}
+        ${dayData.rows.length > LEADERBOARD_VISIBLE_ROWS ? `<button class="ghost" data-expand-day="${esc(dayData.day)}">${expanded ? "Thu gọn" : "Xem toàn bộ"}</button>` : ""}
       </div>
       <div class="leaderboard-table">
         <div class="leaderboard-row leaderboard-head"><span>#</span><span>Tên học viên</span><span>Group</span><span>Chế độ</span><span>Thời gian làm bài</span><span>Giờ làm bài</span><span>Đúng</span><span>Sai</span><span>Tổng</span><span>Điểm</span></div>
@@ -1118,6 +1324,12 @@
     });
   }
 
+  /**
+   * Formats seconds as m:ss.
+   *
+   * @param {unknown} seconds
+   * @returns {string}
+   */
   function formatDuration(seconds) {
     const total = Math.max(0, Number(seconds || 0));
     const minutes = Math.floor(total / 60);
@@ -1228,6 +1440,12 @@
     renderQuestion(false);
   }
 
+  /**
+   * Locks the current question's answer (practice also asks the server for feedback).
+   *
+   * @param {boolean} autoAdvance Move on automatically when the timer expires.
+   * @returns {Promise<boolean>} False when locking failed and the question stays open.
+   */
   async function lockCurrent(autoAdvance) {
     const question = currentQuestion();
     if (!question) return false;
@@ -1237,18 +1455,21 @@
     delete state.remaining[question.id];
     const selection = sorted(state.selections[question.id] || []);
     if (state.mode === "practice") {
-      const client = getSupabaseClient();
-      const { data, error } = await client.functions.invoke("quiz-evaluate", {
-        body: { action: "check", slug: state.slug, question_id: question.id, selected: selection, exam_code: state.examCode }
-      });
-      if (error || data?.error) {
+      try {
+        const data = await invokeQuizFunction("quiz-evaluate", {
+          action: "check",
+          slug: state.slug,
+          question_id: question.id,
+          selected: selection
+        });
+        state.correctness[question.id] = Boolean(data.is_correct);
+        state.answers = state.answers || { answers: {} };
+        state.answers.answers[question.id] = data.correct;
+      } catch (error) {
         state.locked[question.id] = false;
-        showToast(data?.error || error?.message || "Không kiểm tra được đáp án.", "warning");
+        showToast(error.message || "Không kiểm tra được đáp án.", "warning");
         return false;
       }
-      state.correctness[question.id] = Boolean(data.is_correct);
-      state.answers = state.answers || { answers: {} };
-      state.answers.answers[question.id] = data.correct;
     } else {
       state.correctness[question.id] = false;
     }
@@ -1276,7 +1497,7 @@
       state.timeLeft = null;
       return;
     }
-    state.timeLeft = state.remaining[questionId] ?? Number(state.timerSeconds || 60);
+    state.timeLeft = state.remaining[questionId] ?? Number(state.timerSeconds || DEFAULT_TIMER_SECONDS);
     state.timerId = setInterval(() => {
       state.timeLeft -= 1;
       state.remaining[questionId] = state.timeLeft;
@@ -1299,19 +1520,14 @@
     state.timerId = null;
   }
 
+  /**
+   * Formats the remaining seconds for the timer label.
+   *
+   * @param {number} seconds
+   * @returns {string}
+   */
   function formatTime(seconds) {
     return `${Math.max(0, seconds)}s`;
-  }
-
-  async function ensureAnswers() {
-    if (state.answers) return state.answers;
-    const client = getSupabaseClient();
-    const { data, error } = await client.functions.invoke("quiz-evaluate", {
-      body: { action: "answers", slug: state.slug, question_ids: state.selectedIds, exam_code: state.examCode }
-    });
-    if (error || data?.error) throw new Error(data?.error || error?.message || "Không tải được đáp án.");
-    state.answers = { answers: data.answers || {} };
-    return state.answers;
   }
 
   async function requestFinishEarly() {
@@ -1331,6 +1547,12 @@
     await submitQuiz({ includeUnanswered: false, saveResult: false });
   }
 
+  /**
+   * Submits the attempt to the server, which scores it and (for Thi thử / Thi thật) saves it.
+   *
+   * @param {{ includeUnanswered?: boolean, saveResult?: boolean }} [options]
+   * @returns {Promise<void>}
+   */
   async function submitQuiz(options = {}) {
     const includeUnanswered = options.includeUnanswered !== false;
     const shouldSaveResult = options.saveResult !== false;
@@ -1343,194 +1565,94 @@
         }
       }
     }
-    await ensureAnswers();
-    updateCorrectnessFromAnswers();
-    state.scoreBreakdown = calculateCompositeScore();
-    state.done = true;
-    state.examWindowAway = false;
-    state.resultSaveStatus = "";
-    if (shouldSaveResult) {
-      await saveExamAttempt();
+    try {
+      applyAttemptResult(await requestAttemptResult(shouldSaveResult), shouldSaveResult);
+    } catch (error) {
+      if (isTerminalRequestError(error)) {
+        renderAttemptFailure(error.message);
+        return;
+      }
+      showToast(`Không nộp được bài: ${error.message}. Hãy bấm Nộp bài để thử lại.`, "warning");
+      state.current = state.selectedIds.length - 1;
+      renderQuestion(false);
+      return;
     }
     renderResults();
   }
 
-  function updateCorrectnessFromAnswers() {
-    state.selectedIds.forEach((id) => {
-      const selected = sorted(state.selections[id] || []);
-      const correct = sorted(state.answers?.answers?.[id] || []);
-      state.correctness[id] = selected.length === correct.length
-        && selected.every((letter, index) => letter === correct[index]);
-    });
-  }
-
-  async function saveExamAttempt() {
-    const attemptMode = currentAttemptMode();
-    if (attemptMode === "practice") return;
-    if (state.selectedIds.some((id) => !state.locked[id])) return;
-    const client = getSupabaseClient();
-    if (!client) {
-      state.resultSaveStatus = "Chưa cấu hình Supabase nên kết quả chưa được lưu.";
-      return;
-    }
-
-    const total = state.selectedIds.length;
-    const correctCount = state.selectedIds.filter((id) => state.correctness[id]).length;
-    const wrongCount = total - correctCount;
-    const breakdown = state.scoreBreakdown || calculateCompositeScore();
-    const score = breakdown.score;
-    const durationSeconds = Math.max(0, Math.round((Date.now() - (state.startedAt || Date.now())) / 1000));
-    const studentName = normalizeStudentName(state.studentName);
-
-    try {
-      const { error } = await client.from("quiz_attempts").insert({
-        space_slug: state.slug,
-        student_name: studentName,
-        student_name_key: studentNameKey(studentName),
-        group_name: state.groupName,
-        mode: attemptMode,
-        started_at: new Date(state.startedAt || Date.now()).toISOString(),
-        score,
-        total_questions: total,
-        bank_question_count: questionPoolForMode().length || state.space.questions.length,
-        correct_count: correctCount,
-        wrong_count: wrongCount,
-        multi_correct_count: breakdown.multiCorrectCount,
-        multi_similarity_score: breakdown.multiSimilarityScore,
-        duration_seconds: durationSeconds,
-        timer_seconds: Number(state.timerSeconds || state.space.timer_seconds || 0),
-        knowledge_score: breakdown.knowledgeScore,
-        coverage_score: breakdown.coverageScore,
-        duration_score: breakdown.durationScore,
-        punctuality_score: breakdown.punctualityScore,
-        scoring_method: breakdown.scoringMethod,
-        focus_violation_count: Math.min(MAX_FOCUS_VIOLATION_COUNT, state.focusViolationCount),
-        ...(attemptMode === "real" ? {
-          real_exam_id: Number(state.space.real_exam?.id),
-          real_exam_code: Number(state.space.real_exam?.code),
-          real_exam_revision_id: Number(state.space.real_exam?.revision_id)
-        } : {})
+  /**
+   * @param {boolean} shouldSaveResult False when the student ends the attempt early.
+   * @returns {Promise<any>} Server result: breakdown, per-question correctness and answers.
+   */
+  function requestAttemptResult(shouldSaveResult) {
+    const selections = Object.fromEntries(
+      state.selectedIds.map((id) => [id, sorted(state.selections[id])])
+    );
+    if (state.mode === "practice") {
+      return invokeQuizFunction("quiz-evaluate", {
+        action: "review",
+        slug: state.slug,
+        question_ids: state.selectedIds,
+        question_set_ids: selectedQuestionSetIdsForMode(),
+        selections,
+        timer_seconds: state.timerSeconds,
+        duration_seconds: Math.max(0, Math.round((Date.now() - (state.startedAt || Date.now())) / 1000))
       });
-      if (error) throw error;
-      state.resultSaveStatus = attemptMode === "real"
-        ? "Đã lưu kết quả Thi thật."
-        : "Đã lưu kết quả Thi thử.";
-    } catch (error) {
-      const message = error.message || "Lỗi không xác định";
-      state.resultSaveStatus = message.includes("row-level security")
-        ? "Không lưu được kết quả: Supabase từ chối quyền ghi. Hãy chạy supabase/fix_quiz_attempt_policy.sql."
-        : `Không lưu được kết quả: ${message}`;
     }
-  }
-
-  function calculateCompositeScore() {
-    const roundScore = (value) => Math.round(value * 100) / 100;
-    const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
-    let earnedWeight = 0;
-    let totalWeight = 0;
-    let multiCorrectCount = 0;
-    let multiSimilarityScore = 0;
-
-    const scoringMethod = state.mode === "real"
-      ? Number(state.space.real_exam?.scoring_method || 1)
-      : 1;
-
-    state.selectedIds.forEach((id) => {
-      const question = state.space.questions.find((item) => item.id === id);
-      const selected = new Set(state.selections[id] || []);
-      const correct = new Set(state.answers?.answers?.[id] || []);
-      const isMulti = question?.type === "multi";
-      const weight = scoringMethod === 2 ? 1 : (isMulti ? Math.min(2, 1 + 0.25 * Math.max(0, correct.size - 1)) : 1);
-      let similarity = 0;
-
-      if (isMulti) {
-        const truePositive = [...selected].filter((letter) => correct.has(letter)).length;
-        const falsePositive = [...selected].filter((letter) => !correct.has(letter)).length;
-        const falseNegative = [...correct].filter((letter) => !selected.has(letter)).length;
-        const denominator = 2 * truePositive + falsePositive + falseNegative;
-        similarity = scoringMethod === 2
-          ? (falsePositive === 0 && falseNegative === 0 ? 1 : 0)
-          : (denominator ? (2 * truePositive) / denominator : 0);
-        multiSimilarityScore += similarity;
-        if (falsePositive === 0 && falseNegative === 0) multiCorrectCount += 1;
-      } else {
-        similarity = selected.size === correct.size && [...selected].every((letter) => correct.has(letter)) ? 1 : 0;
-      }
-
-      earnedWeight += similarity * weight;
-      totalWeight += weight;
+    return invokeQuizFunction("quiz-attempt", {
+      action: "submit",
+      attempt_id: state.attemptId,
+      selections,
+      focus_violation_count: Math.min(MAX_FOCUS_VIOLATION_COUNT, state.focusViolationCount),
+      save: shouldSaveResult
     });
+  }
 
-    const totalQuestions = state.selectedIds.length;
-    const bankQuestionCount = questionPoolForMode().length || state.space.questions.length;
-    const durationSeconds = Math.max(0, Math.round((Date.now() - (state.startedAt || Date.now())) / 1000));
-    const timerSeconds = Number(state.timerSeconds || state.space.timer_seconds || 0);
-    const maximumDuration = totalQuestions * timerSeconds;
-    const minimumReasonableDuration = maximumDuration * 0.3;
-    if (scoringMethod === 2) {
-      // Method 2: A = correct-answer ratio × 95; B = configured maximum time;
-      // C = (B - actual duration) / B × 5. Both components are capped at their maxima.
-      const knowledgeScore = totalQuestions ? (multiAwareCorrectCount() / totalQuestions) * 95 : 0;
-      const durationScore = maximumDuration > 0
-        ? clamp(((maximumDuration - durationSeconds) / maximumDuration) * 5, 0, 5)
-        : 0;
-      return {
-        score: Math.round(clamp(knowledgeScore + durationScore, 0, 100)),
-        scoringMethod,
-        knowledgeScore: roundScore(knowledgeScore),
-        coverageScore: 0,
-        durationScore: roundScore(durationScore),
-        punctualityScore: 0,
-        multiCorrectCount,
-        multiSimilarityScore: roundScore(multiSimilarityScore)
-      };
-    }
-    const knowledgeScore = totalWeight ? 75 * earnedWeight / totalWeight : 0;
-    const coverageScore = bankQuestionCount ? 10 * totalQuestions / bankQuestionCount : 0;
-    const durationScore = maximumDuration > minimumReasonableDuration
-      ? 10 * clamp((maximumDuration - durationSeconds) / (maximumDuration - minimumReasonableDuration), 0, 1)
-      : 10;
-    const punctualityScore = calculatePunctualityScore(state.startedAt);
-
-    return {
-      score: Math.round(clamp(knowledgeScore + coverageScore + durationScore + punctualityScore, 0, 100)),
-      scoringMethod,
-      knowledgeScore: roundScore(knowledgeScore),
-      coverageScore: roundScore(coverageScore),
-      durationScore: roundScore(durationScore),
-      punctualityScore: roundScore(punctualityScore),
-      multiCorrectCount,
-      multiSimilarityScore: roundScore(multiSimilarityScore)
+  /**
+   * Stores the server-computed result so renderResults can display it.
+   *
+   * @param {any} result Response of quiz-attempt `submit` or quiz-evaluate `review`.
+   * @param {boolean} wasSaved False when the attempt was ended early and not stored.
+   * @returns {void}
+   */
+  function applyAttemptResult(result, wasSaved) {
+    const breakdown = result.breakdown || {};
+    state.answers = { answers: result.answers || {} };
+    state.correctness = result.correctness || {};
+    state.scoreBreakdown = {
+      score: Number(breakdown.score || 0),
+      scoringMethod: Number(breakdown.scoring_method || 1),
+      knowledgeScore: Number(breakdown.knowledge_score || 0),
+      coverageScore: Number(breakdown.coverage_score || 0),
+      durationScore: Number(breakdown.duration_score || 0),
+      punctualityScore: Number(breakdown.punctuality_score || 0)
     };
+    state.done = true;
+    state.examWindowAway = false;
+    state.resultSaveStatus = wasSaved && state.mode !== "practice"
+      ? (state.mode === "real" ? "Đã lưu kết quả Thi thật." : "Đã lưu kết quả Thi thử.")
+      : "";
   }
 
-  function multiAwareCorrectCount() {
-    return state.selectedIds.filter((id) => {
-      const selected = sorted(state.selections[id] || []);
-      const correct = sorted(state.answers?.answers?.[id] || []);
-      return selected.length === correct.length
-        && selected.every((letter, index) => letter === correct[index]);
-    }).length;
-  }
-
-  function calculatePunctualityScore(startedAt) {
-    const configuredTime = state.space.exam_start_time;
-    if (!configuredTime) return 5;
-    const [hours, minutes] = configuredTime.split(":").map(Number);
-    if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return 5;
-    const started = new Date(startedAt || Date.now());
-    const startedMinutes = started.getHours() * 60 + started.getMinutes();
-    const scheduledMinutes = hours * 60 + minutes;
-    const lateness = Math.max(0, startedMinutes - scheduledMinutes);
-    const allowance = Math.max(1, Number(state.space.allowed_late_minutes || 30));
-    return 5 * Math.max(0, 1 - lateness / allowance);
+  function renderAttemptFailure(message) {
+    stopTimer();
+    state.started = false;
+    renderShell(`<section class="screen center">
+      <div class="text-center">
+        <p class="error-code" aria-hidden="true">!</p>
+        <h1>Không ghi nhận được bài làm</h1>
+        <p class="muted measure-narrow">${esc(message || "Đã xảy ra lỗi khi nộp bài.")}</p>
+        <button type="button" class="primary" id="attemptFailureBackBtn">Quay lại</button>
+      </div>
+    </section>`);
+    document.getElementById("attemptFailureBackBtn").onclick = () => renderSetup();
   }
 
   function renderResults() {
     stopTimer();
     const total = state.selectedIds.length;
     const correctCount = state.selectedIds.filter((id) => state.correctness[id]).length;
-    const breakdown = state.scoreBreakdown || calculateCompositeScore();
+    const breakdown = state.scoreBreakdown;
     const score = breakdown.score;
     const questionsById = new Map(state.space.questions.map((question) => [question.id, question]));
     renderShell(`<section class="screen grid">

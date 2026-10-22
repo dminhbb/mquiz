@@ -12,10 +12,10 @@ npm install
 npm run dev
 ```
 
-Mở `http://127.0.0.1:8787`. Dev server tự build lại `dist/` khi `frontend/` hoặc `cloud-admin/` thay đổi. Để kiểm tra quy ước giao diện, chạy:
+Mở `http://127.0.0.1:8787`. Dev server tự build lại `dist/` khi `frontend/` hoặc `cloud-admin/` thay đổi và gửi cùng security header như bản phát hành. Chạy toàn bộ kiểm tra (lint, format, design, security config, test, type-check và test Edge Function, build):
 
 ```bash
-npm run design:check
+npm run check
 ```
 
 Build phát hành chạy `npm run build`; kết quả là `dist/`. Cloudflare Workers Static Assets sử dụng cấu hình trong `wrangler.toml`.

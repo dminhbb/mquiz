@@ -1,0 +1,16 @@
+dist/
+dist-cloudflare/
+_site/
+node_modules/
+.agents/
+.claude/
+.github/skills/
+.impeccable/
+package-lock.json
+
+# Legacy single-file SPAs: reformatting them would bury real changes in noise.
+# Prettier is enforced on new/maintained code only (see npm run format:check).
+frontend/assets/app.js
+frontend/assets/*.css
+cloud-admin/admin.js
+cloud-admin/admin.css

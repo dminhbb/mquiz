@@ -6,12 +6,30 @@
   "scripts": {
     "build": "node scripts/build-static.js",
     "dev": "node scripts/dev-static.js",
+    "lint": "eslint .",
+    "format": "prettier --write \"scripts/**/*.js\" \"tests/**/*.ts\" \"supabase/functions/**/*.ts\" eslint.config.js .prettierrc.json",
+    "format:check": "prettier --check \"scripts/**/*.js\" \"tests/**/*.ts\" \"supabase/functions/**/*.ts\" eslint.config.js .prettierrc.json",
+    "test": "node --no-warnings --test \"tests/*.test.ts\"",
+    "check:functions": "deno check supabase/functions/quiz-attempt/index.ts supabase/functions/quiz-evaluate/index.ts supabase/functions/admin-users/index.ts",
+    "test:functions": "deno test --config tests/edge/deno.json --allow-env --allow-read tests/edge/",
     "design:check": "node scripts/check-design-system.js",
+    "security:check": "node scripts/check-security-config.js",
+    "audit:deps": "npm audit --audit-level=high",
+    "check": "npm run lint && npm run format:check && npm run design:check && npm run security:check && npm test && npm run check:functions && npm run test:functions && npm run build",
     "version:bump": "node scripts/bump-app-version.js",
+    "deploy:quiz-attempt": "supabase functions deploy quiz-attempt",
     "deploy:quiz-evaluate": "supabase functions deploy quiz-evaluate",
     "deploy:admin-users": "supabase functions deploy admin-users"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "deno": "^2.9.6",
+    "eslint": "^10.13.0",
+    "globals": "^17.13.0",
+    "prettier": "^3.9.10",
     "supabase": "^2.109.1"
+  },
+  "engines": {
+    "node": ">=22.18"
   }
 }

@@ -7,6 +7,8 @@ node_modules/
 
 # Generated deployment files
 dist/
+dist-cloudflare/
+_site/
 *.zip
 
 # Local environment and secrets
@@ -25,3 +27,12 @@ Thumbs.db
 .idea/
 .agents/
 .claude/
+
+# Supabase CLI local state (project ref, pooler URL, schema dumps)
+supabase/.temp/
+supabase/.branches/
+
+# Local database files from the removed SQLite backend
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal

@@ -22,10 +22,35 @@
     updateAvailableVersion: ""
   };
 
+  /**
+   * Escapes text for safe insertion into innerHTML templates.
+   *
+   * @param {unknown} value
+   * @returns {string}
+   */
   const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (ch) => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
   }[ch]));
 
+  /**
+   * Message to show for a failed Edge Function call. supabase-js only reports a generic
+   * "non-2xx" message, so read the `{ error }` JSON body the function returned.
+   *
+   * @param {{ message?: string, context?: Response } | null} error
+   * @param {string} fallback
+   * @returns {Promise<string>}
+   */
+  async function functionErrorMessage(error, fallback) {
+    try {
+      const payload = await error?.context?.json();
+      if (payload?.error) return String(payload.error);
+    } catch {
+      // No JSON body (network failure): use the transport message below.
+    }
+    return error?.message || fallback;
+  }
+
+  /** Shows the "new version available" toast once per page load. */
   function syncAppUpdateToast() {
     if (!state.updateAvailableVersion || document.querySelector(".app-update-toast")) return;
     const toast = document.createElement("button");
@@ -41,6 +66,11 @@
     document.body.appendChild(toast);
   }
 
+  /**
+   * Compares the loaded build with the no-cache `app-version.json` deployment flag.
+   *
+   * @returns {Promise<void>}
+   */
   async function checkForAppUpdate() {
     try {
       const response = await fetch(APP_VERSION_URL, { cache: "no-store" });
@@ -61,12 +91,23 @@
     window.setInterval(checkForAppUpdate, APP_VERSION_CHECK_INTERVAL_MS);
   }
 
+  /**
+   * Shows a status banner and re-renders the shell.
+   *
+   * @param {string} message
+   * @param {boolean} [error] True to style and announce the message as an error.
+   * @returns {void}
+   */
   function setStatus(message, error = false) {
     state.status = message;
     state.error = error;
     render();
   }
 
+  /**
+   * @param {string} label Accessible name announced while content loads.
+   * @returns {string} Skeleton panel HTML.
+   */
   function loadingPanel(label) {
     return `<section class="panel loading-state" role="status" aria-live="polite" aria-label="${esc(label)}">
       <span class="skeleton loading-title" aria-hidden="true"></span>
@@ -508,8 +549,8 @@
   }
 
   async function loadQuestionSets(spaceId) {
-    let setQuery = client.from("question_sets").select("*").eq("space_id", spaceId).order("name");
-    let questionQuery = client.from("questions").select("id,type,question_set_id,hidden_at,permanent_hidden").eq("space_id", spaceId);
+    const setQuery = client.from("question_sets").select("*").eq("space_id", spaceId).order("name");
+    const questionQuery = client.from("questions").select("id,type,question_set_id,hidden_at,permanent_hidden").eq("space_id", spaceId);
     const [{ data: sets, error: setError }, { data: questions, error: questionError }] = await Promise.all([
       setQuery,
       questionQuery
@@ -2013,14 +2054,6 @@
     bindPanelCloseButtons(panel);
   }
 
-  function resultPeriodOptions(periods) {
-    return periods.map((period) => {
-      const name = period.real_exam_name || "Đợt thi thật chưa đặt tên";
-      const date = period.real_exam_start_at ? ` · ${formatExportDateTime(period.real_exam_start_at)}` : "";
-      return `<option value="${esc(period.real_exam_version)}">${esc(name)}${esc(date)} · ${Number(period.submitted_count || 0)} bản ghi</option>`;
-    }).join("");
-  }
-
   async function saveResultSettings(event, spaceId) {
     event.preventDefault();
     const form = new FormData(event.target);
@@ -2041,74 +2074,6 @@
       }
       markSpaceSettingsClean();
       await renderSpaces();
-    } finally {
-      restoreButton();
-    }
-  }
-
-  async function fetchSelectedRealExamRows(space) {
-    const select = document.getElementById("resultExamPeriodSelect");
-    const examVersion = select?.value;
-    if (!examVersion) throw new Error("Chọn Tên đợt thi thật trước.");
-    const { data, error } = await client.rpc("export_real_exam_results_by_version", {
-      requested_slug: space.slug,
-      requested_exam_version: examVersion
-    });
-    if (error) throw error;
-    return data || [];
-  }
-
-  async function loadSelectedRealExamRows(space, button) {
-    const target = document.getElementById("resultPeriodPreview");
-    if (!target) return;
-    const restoreButton = setButtonBusy(button, "Đang tải...");
-    target.classList.add("muted");
-    target.innerHTML = '<div class="loading-block">Đang tải 30 kết quả cao nhất...</div>';
-    try {
-      const rows = (await fetchSelectedRealExamRows(space)).slice(0, 30);
-      if (!rows.length) {
-        target.innerHTML = '<div class="empty-state">Đợt thi thật này chưa có kết quả.</div>';
-        return;
-      }
-      target.classList.remove("muted");
-      target.innerHTML = realExamRowsTable(rows);
-    } catch (error) {
-      target.innerHTML = `<div class="status error">${esc(error.message || "Không tải được dữ liệu.")}</div>`;
-    } finally {
-      restoreButton();
-    }
-  }
-
-  async function exportSelectedRealExamRows(space, button) {
-    if (!window.XLSX) return showDialogError("Không thể khởi tạo chức năng xuất Excel.");
-    const restoreButton = setButtonBusy(button, "Đang tạo Excel...");
-    try {
-      const rows = await fetchSelectedRealExamRows(space);
-      if (!rows.length) return showDialogError("Đợt thi thật này chưa có dữ liệu để tải.");
-      const examName = rows[0]?.real_exam_name || "Đợt thi thật";
-      const sheetRows = rows.map((row) => ({
-        "Group": row.group_name || "Chưa phân nhóm",
-        "Tên đợt Thi thật": row.real_exam_name || examName,
-        "Học viên": row.student_name,
-        "Điểm": Number(row.score),
-        "Đúng": Number(row.correct_count),
-        "Sai": Number(row.wrong_count),
-        "Tổng số câu": Number(row.total_questions),
-        "Thời gian làm bài": formatExportDuration(row.duration_seconds),
-        "Bắt đầu làm bài": formatExportDateTime(row.started_at),
-        "Nộp bài": formatExportDateTime(row.submitted_at)
-      }));
-      const worksheet = XLSX.utils.json_to_sheet(sheetRows);
-      worksheet["!cols"] = [
-        { wch: 24 }, { wch: 34 }, { wch: 28 }, { wch: 10 }, { wch: 10 },
-        { wch: 10 }, { wch: 12 }, { wch: 20 }, { wch: 22 }, { wch: 22 }
-      ];
-      const workbook = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(workbook, worksheet, "Kết quả Thi thật");
-      XLSX.writeFile(workbook, `ket-qua-${safeExportFileName(space.slug)}-${safeExportFileName(examName)}.xlsx`);
-      setStatus(`Đã xuất ${rows.length} kết quả của “${examName}”.`);
-    } catch (error) {
-      showDialogError(error.message || "Không thể tải dữ liệu Thi thật.");
     } finally {
       restoreButton();
     }
@@ -2174,73 +2139,6 @@
     };
   }
 
-  async function loadLatestRealExamResults(id) {
-    const target = document.getElementById("realExamTopResults");
-    const button = document.getElementById("viewRealExamResultsBtn");
-    const space = state.spaces.find((item) => item.id === id);
-    if (!target || !space) return;
-    const restoreButton = setButtonBusy(button, "Đang tải...");
-    target.classList.add("muted");
-    target.innerHTML = '<div class="loading-block">Đang tải 15 kết quả cao nhất...</div>';
-    try {
-      const { data, error } = await client.rpc("export_real_exam_results", {
-        requested_slug: space.slug,
-        exam_limit: 1
-      });
-      if (error) throw error;
-      const rows = (data || [])
-        .filter((row) => Number(row.exam_rank || 1) === 1)
-        .sort((a, b) =>
-          Number(b.score) - Number(a.score)
-          || Number(a.duration_seconds) - Number(b.duration_seconds)
-          || new Date(b.submitted_at) - new Date(a.submitted_at)
-        )
-        .slice(0, 15);
-      if (!rows.length) {
-        target.innerHTML = '<div class="empty-state">Chưa có kết quả Thi thật gần nhất.</div>';
-        return;
-      }
-      target.classList.remove("muted");
-      target.innerHTML = `<table class="compact-results-table">
-        <thead><tr><th>#</th><th>Học viên</th><th>Group</th><th>Điểm</th><th>Đúng</th><th>Thời gian</th><th>Nộp bài</th></tr></thead>
-        <tbody>${rows.map((row, index) => `<tr>
-          <td>${index + 1}</td>
-          <td><b>${esc(row.student_name || "")}</b></td>
-          <td>${esc(row.group_name || "Chưa phân nhóm")}</td>
-          <td>${Number(row.score).toFixed(2)}</td>
-          <td>${Number(row.correct_count || 0)}/${Number(row.total_questions || 0)}</td>
-          <td>${formatExportDuration(row.duration_seconds)}</td>
-          <td>${formatExportDateTime(row.submitted_at)}</td>
-        </tr>`).join("")}</tbody>
-      </table>`;
-    } catch (error) {
-      target.innerHTML = `<div class="status error">${esc(error.message || "Không thể tải kết quả Thi thật.")}</div>`;
-    } finally {
-      restoreButton();
-    }
-  }
-
-  function wireRealExamForm(id) {
-    const form = document.getElementById("realForm");
-    const scoringSelect = form.querySelector('[name="scoring_method"]');
-    const scoringHelp = form.querySelector(".scoring-help");
-    const scoringHelpButton = form.querySelector(".scoring-help-button");
-    const scoringTooltip = form.querySelector(".scoring-tooltip");
-    scoringSelect.onchange = () => {
-      scoringTooltip.innerHTML = scoringMethodTooltip(Number(scoringSelect.value));
-    };
-    scoringHelpButton.onclick = () => {
-      const open = scoringHelp.classList.toggle("open");
-      scoringHelpButton.setAttribute("aria-expanded", String(open));
-    };
-    form.onclick = (event) => {
-      if (event.target.closest(".scoring-help")) return;
-      scoringHelp.classList.remove("open");
-      scoringHelpButton.setAttribute("aria-expanded", "false");
-    };
-    form.onsubmit = (event) => saveRealExam(event, id);
-  }
-
   function openSpace(id) {
     const space = state.spaces.find((item) => item.id === id) || {
       name: "", slug: "", timer_seconds: 60, published: true
@@ -2304,110 +2202,6 @@
     await renderSpaces();
   }
 
-  async function exportRealExamResults(id) {
-    const space = state.spaces.find((item) => item.id === id);
-    if (!space) return setStatus("Space không tồn tại.", true);
-    if (!window.XLSX) return setStatus("Không thể khởi tạo chức năng xuất Excel.", true);
-
-    const button = document.querySelector(`[data-export-real="${id}"]`)
-      || document.getElementById("exportRealExamBtn");
-    const buttonLabel = button?.textContent || "Tải Excel dữ liệu Thi thật";
-    if (button) {
-      button.disabled = true;
-      button.textContent = "Đang tạo Excel...";
-    }
-    try {
-      const { data, error } = await client.rpc("export_real_exam_results", {
-        requested_slug: space.slug,
-        exam_limit: 3
-      });
-      if (error) throw error;
-      if (!data?.length) {
-        setStatus(`Space “${space.name}” chưa có dữ liệu Thi thật để xuất.`, true);
-        return;
-      }
-
-      const collator = new Intl.Collator("vi", { sensitivity: "base", numeric: true });
-      const bestByStudentAndExam = new Map();
-      data.forEach((row) => {
-        const studentKey = String(row.student_name || "").trim().toLocaleLowerCase("vi");
-        const key = `${row.real_exam_version}::${studentKey}`;
-        const current = bestByStudentAndExam.get(key);
-        if (
-          !current
-          || Number(row.score) > Number(current.score)
-          || (Number(row.score) === Number(current.score) && Number(row.duration_seconds) < Number(current.duration_seconds))
-          || (
-            Number(row.score) === Number(current.score)
-            && Number(row.duration_seconds) === Number(current.duration_seconds)
-            && new Date(row.submitted_at) > new Date(current.submitted_at)
-          )
-        ) {
-          bestByStudentAndExam.set(key, row);
-        }
-      });
-      const rows = [...bestByStudentAndExam.values()].sort((a, b) =>
-        collator.compare(a.group_name || "", b.group_name || "")
-        || Number(a.exam_rank) - Number(b.exam_rank)
-        || Number(b.score) - Number(a.score)
-        || Number(a.duration_seconds) - Number(b.duration_seconds)
-        || collator.compare(a.student_name || "", b.student_name || "")
-        || new Date(a.submitted_at) - new Date(b.submitted_at)
-      );
-      const sheetRows = rows.map((row) => ({
-        "Group": row.group_name || "Chưa phân nhóm",
-        "Đợt Thi thật": formatExamPeriod(row),
-        "Học viên": row.student_name,
-        "Điểm": Number(row.score),
-        "Đúng": Number(row.correct_count),
-        "Sai": Number(row.wrong_count),
-        "Tổng số câu": Number(row.total_questions),
-        "Thời gian làm bài": formatExportDuration(row.duration_seconds),
-        "Bắt đầu làm bài": formatExportDateTime(row.started_at),
-        "Nộp bài": formatExportDateTime(row.submitted_at)
-      }));
-      const worksheet = XLSX.utils.json_to_sheet(sheetRows);
-      worksheet["!cols"] = [
-        { wch: 24 }, { wch: 42 }, { wch: 28 }, { wch: 10 }, { wch: 10 },
-        { wch: 10 }, { wch: 12 }, { wch: 20 }, { wch: 22 }, { wch: 22 }
-      ];
-      const examFillColors = {
-        1: "FFFF00",
-        2: "FFC0CB",
-        3: "D9D9D9"
-      };
-      rows.forEach((row, index) => {
-        const fillColor = examFillColors[Number(row.exam_rank)];
-        if (!fillColor) return;
-        for (let column = 0; column < 10; column += 1) {
-          const cell = worksheet[XLSX.utils.encode_cell({ r: index + 1, c: column })];
-          if (cell) {
-            cell.s = {
-              fill: { patternType: "solid", fgColor: { rgb: fillColor } }
-            };
-          }
-        }
-      });
-      const workbook = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(workbook, worksheet, "Kết quả Thi thật");
-      XLSX.writeFile(workbook, `ket-qua-thi-that-${safeExportFileName(space.slug)}.xlsx`);
-      setStatus(`Đã xuất ${rows.length} kết quả Thi thật của Space “${space.name}”.`);
-    } catch (error) {
-      setStatus(`Không thể xuất Excel: ${error.message || "Lỗi không xác định"}`, true);
-    } finally {
-      if (button?.isConnected) {
-        button.disabled = false;
-        button.textContent = buttonLabel;
-      }
-    }
-  }
-
-  function formatExamPeriod(row) {
-    const rank = Number(row.exam_rank);
-    const label = rank === 1 ? "Đợt gần nhất" : `Đợt gần thứ ${rank}`;
-    return `${label} · ${formatExportDateTime(row.real_exam_start_at)} - ${formatExportDateTime(row.real_exam_end_at)}`;
-  }
-
   function formatExportDateTime(value) {
     if (!value) return "-";
     return new Date(value).toLocaleString("vi-VN", {
@@ -2425,80 +2219,6 @@
 
   function safeExportFileName(value) {
     return String(value || "space").replace(/[^a-zA-Z0-9_-]+/g, "-");
-  }
-
-  async function openGroups(spaceId) {
-    const space = state.spaces.find((item) => item.id === spaceId);
-    const { data, error } = await client.from("groups").select("*").eq("space_id", spaceId).order("name");
-    if (error) return setStatus(error.message, true);
-    openDialog(`<div class="grid"><h2>Group · ${esc(space.name)}</h2>
-      <div id="groupList" class="grid">${data.map((group) => `<div class="space-between"><b>${esc(group.name)}</b><div class="actions"><button data-rename-group="${group.id}">Sửa</button><button class="danger" data-delete-group="${group.id}">Xóa</button></div></div>`).join("")}</div>
-      <form id="addGroupForm" class="actions"><input name="name" placeholder="Tên Group mới" required><button class="primary">Thêm</button></form>
-      <button data-close>Đóng</button>
-    </div>`);
-    document.querySelector("[data-close]").onclick = closeDialog;
-    document.getElementById("addGroupForm").onsubmit = async (event) => {
-      event.preventDefault();
-      const name = new FormData(event.target).get("name").trim();
-      const { error: insertError } = await client.from("groups").insert({ space_id: spaceId, name });
-      if (insertError) return showDialogError(insertError.message);
-      closeDialog();
-      await openGroups(spaceId);
-    };
-    bind("[data-rename-group]", async (button) => {
-      const group = data.find((item) => item.id === Number(button.dataset.renameGroup));
-      const name = prompt("Tên Group mới", group.name)?.trim();
-      if (!name) return;
-      const { error: updateError } = await client.from("groups").update({ name }).eq("id", group.id);
-      if (updateError) return showDialogError(updateError.message);
-      closeDialog();
-      await openGroups(spaceId);
-    });
-    bind("[data-delete-group]", async (button) => {
-      if (data.length <= 1) return showDialogError("Space phải có ít nhất 1 Group.");
-      if (!confirm("Xóa Group này?")) return;
-      const { error: deleteError } = await client.from("groups").delete().eq("id", Number(button.dataset.deleteGroup));
-      if (deleteError) return showDialogError(deleteError.message);
-      closeDialog();
-      await openGroups(spaceId);
-    });
-  }
-
-  function openQuestions(spaceId) {
-    const space = state.spaces.find((item) => item.id === spaceId);
-    openDialog(`<div class="grid"><h2>Upload CSV · ${esc(space.name)}</h2>
-      <p class="muted">CSV mới được nối thêm vào ngân hàng hiện tại.</p>
-      <input id="csvFile" type="file" accept=".csv,text/csv">
-      <div id="csvPreview" class="muted"></div>
-      <div class="actions">
-        <button class="primary" id="previewCsvBtn">Preview</button>
-        <button id="importCsvBtn" disabled>Thêm dữ liệu</button>
-        <button id="exportQuestionsBtn">Tải ngân hàng câu hỏi</button>
-        <button class="danger" id="deleteQuestionsBtn">Xóa toàn bộ câu hỏi</button>
-        <button data-close>Đóng</button>
-      </div>
-    </div>`);
-    let parsedQuestions = [];
-    document.querySelector("[data-close]").onclick = closeDialog;
-    document.getElementById("previewCsvBtn").onclick = () => {
-      const file = document.getElementById("csvFile").files[0];
-      if (!file) return showDialogError("Chọn file CSV trước.");
-      Papa.parse(file, {
-        complete: (result) => {
-          try {
-            parsedQuestions = parseQuestions(result.data);
-            document.getElementById("csvPreview").textContent = `Hợp lệ: ${parsedQuestions.length} câu hỏi.`;
-            document.getElementById("importCsvBtn").disabled = false;
-          } catch (error) {
-            parsedQuestions = [];
-            showDialogError(error.message);
-          }
-        }
-      });
-    };
-    document.getElementById("importCsvBtn").onclick = () => importQuestions(spaceId, parsedQuestions);
-    document.getElementById("exportQuestionsBtn").onclick = () => exportQuestions(spaceId, space.slug);
-    document.getElementById("deleteQuestionsBtn").onclick = () => deleteAllQuestions(spaceId);
   }
 
   async function exportQuestions(spaceId, spaceSlug, questionSetId = null, options = {}) {
@@ -2649,41 +2369,6 @@
     }
   }
 
-  function openRealExam(id) {
-    const space = state.spaces.find((item) => item.id === id);
-    openDialog(`<form id="realForm" class="grid compact-dialog-form real-exam-form">
-      <div class="real-exam-header">
-        <h2>Chế độ Thi thật</h2>
-        <label class="switch"><input name="enabled" type="checkbox" ${space.real_exam_enabled ? "checked" : ""}><span class="switch-track"></span><span>Bật Thi thật</span></label>
-      </div>
-      <div class="grid two real-exam-row">
-        ${selectField("question_percent", "Số lượng câu hỏi", [30,50,70,100], space.real_question_percent, "%")}
-        ${selectField("timer_seconds", "Thời gian mỗi câu", [45,60,90,120], space.real_timer_seconds, "s")}
-      </div>
-      <div class="grid two real-exam-row">
-        ${selectField("multi_percent", "Tỷ lệ câu nhiều đáp án", [30,50,70,100], space.real_multi_percent, "%")}
-        ${selectField("max_attempts", "Số lần thi tối đa", [1,2,3,4,5], space.real_max_attempts, "")}
-      </div>
-      <div class="grid two real-exam-row">
-        <label>Ngày giờ bắt đầu<input name="start_at" type="datetime-local" value="${toLocalInput(space.real_start_at)}"></label>
-        <label>Ngày giờ kết thúc<input name="end_at" type="datetime-local" value="${toLocalInput(space.real_end_at)}"></label>
-      </div>
-      <div class="scoring-field-row">
-        <label>Cách tính điểm<select name="scoring_method">
-          <option value="1" ${Number(space.real_scoring_method || 1) === 1 ? "selected" : ""}>Cách tính điểm 1</option>
-          <option value="2" ${Number(space.real_scoring_method || 1) === 2 ? "selected" : ""}>Cách tính điểm 2</option>
-        </select></label>
-        <div class="scoring-help">
-          <button type="button" class="scoring-help-button" aria-label="Xem chi tiết cách tính điểm" aria-expanded="false">?</button>
-          <div class="scoring-tooltip" role="tooltip">${scoringMethodTooltip(Number(space.real_scoring_method || 1))}</div>
-        </div>
-      </div>
-      <div class="actions"><button class="primary">Lưu</button><button type="button" data-close>Hủy</button></div>
-    </form>`);
-    document.querySelector("[data-close]").onclick = closeDialog;
-    wireRealExamForm(id);
-  }
-
   function scoringMethodTooltip(method) {
     return method === 2
       ? `<b>Tính điểm đơn giản</b><span>A = (số câu đúng / tổng câu) × 95. B = tổng câu × thời gian mỗi câu. C = ((B − thời gian làm bài) / B) × 5, tối đa 5. Điểm cuối = A + C.</span>`
@@ -2692,20 +2377,6 @@
 
   function selectField(name, label, values, selected, suffix) {
     return `<label>${label}<select name="${name}">${values.map((value) => `<option value="${value}" ${Number(selected) === value ? "selected" : ""}>${value}${suffix}</option>`).join("")}</select></label>`;
-  }
-
-  function toLocalInput(value) {
-    if (!value) return "";
-    const date = new Date(value);
-    const offset = date.getTimezoneOffset() * 60000;
-    return new Date(date.getTime() - offset).toISOString().slice(0, 16);
-  }
-
-  function toLocalDateText(value) {
-    if (!value) return "";
-    const date = new Date(value);
-    if (!Number.isFinite(date.getTime())) return "";
-    return date.toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric" });
   }
 
   function toLocalDateInput(value) {
@@ -2763,53 +2434,6 @@
     return normalizePercentConfig(rows);
   }
 
-  async function saveRealExam(event, id) {
-    event.preventDefault();
-    const space = state.spaces.find((item) => item.id === id);
-    if (!space) return showDialogError("Space không tồn tại.");
-    const form = new FormData(event.target);
-    const enabled = form.has("enabled");
-    const startIso = form.has("start_date")
-      ? parseLocalDateTime(form.get("start_date"), form.get("start_time"))
-      : (form.get("start_at") ? new Date(form.get("start_at")).toISOString() : null);
-    const endIso = form.has("end_date")
-      ? parseLocalDateTime(form.get("end_date"), form.get("end_time"))
-      : (form.get("end_at") ? new Date(form.get("end_at")).toISOString() : null);
-    if (startIso === "invalid" || endIso === "invalid") return showDialogError("Ngày giờ Thi thật không hợp lệ. Phút phải là bội số của 5.");
-    if (enabled && (!startIso || !endIso || new Date(startIso) >= new Date(endIso))) return showDialogError("Khoảng thời gian Thi thật không hợp lệ.");
-    const realQuestionSets = readRealQuestionSetConfig();
-    if (enabled && realQuestionSets && !realQuestionSets.length) return showDialogError("Chọn ít nhất một Bộ câu hỏi cho Thi thật.");
-    const startsNewExam = enabled && (
-      !space.real_exam_enabled
-      || new Date(space.real_start_at || 0).getTime() !== new Date(startIso || 0).getTime()
-      || new Date(space.real_end_at || 0).getTime() !== new Date(endIso || 0).getTime()
-      || (realQuestionSets && JSON.stringify(realQuestionSets) !== JSON.stringify(space.real_question_sets || []))
-    );
-    const payload = {
-      real_exam_name: form.get("real_exam_name")?.trim() || null,
-      real_exam_enabled: enabled,
-      real_scoring_method: Number(form.get("scoring_method")),
-      real_question_percent: Number(form.get("question_percent")),
-      real_timer_seconds: Number(form.get("timer_seconds")),
-      real_multi_percent: Number(form.get("multi_percent")),
-      real_max_attempts: Number(form.get("max_attempts")),
-      ...(realQuestionSets ? { real_question_sets: realQuestionSets } : {}),
-      real_exam_version: startsNewExam || !space.real_exam_version ? crypto.randomUUID() : space.real_exam_version,
-      real_start_at: startIso,
-      real_end_at: endIso,
-      updated_at: new Date().toISOString()
-    };
-    const restoreButton = setButtonBusy(event.submitter, "Đang lưu...");
-    try {
-      const { error } = await client.from("spaces").update(payload).eq("id", id);
-      if (error) return showDialogError(error.message);
-      closeDialog();
-      await renderSpaces();
-    } finally {
-      restoreButton();
-    }
-  }
-
   async function renderUsers() {
     const view = document.getElementById("view");
     const { data, error } = await client.from("profiles").select("*").order("created_at");
@@ -2825,7 +2449,7 @@
       const { error: invokeError } = await client.functions.invoke("admin-users", {
         body: { action: "delete", id: button.dataset.deleteUser }
       });
-      if (invokeError) return setStatus(invokeError.message, true);
+      if (invokeError) return setStatus(await functionErrorMessage(invokeError, "Không thể xóa tài khoản."), true);
       await renderUsers();
     });
   }
@@ -2877,7 +2501,7 @@
         closeDialog();
         setStatus(`Đã cấp lại mật khẩu cho ${user.email}.`);
       } catch (invokeError) {
-        error.textContent = invokeError.message || "Không thể cấp lại mật khẩu.";
+        error.textContent = await functionErrorMessage(invokeError, "Không thể cấp lại mật khẩu.");
         error.hidden = false;
       } finally { restore(); }
     };
@@ -2906,7 +2530,7 @@
         ? { action: "update", id: user.id, fullname: form.get("fullname"), role: form.get("role"), active: form.has("active") }
         : { action: "create", email: form.get("email"), fullname: form.get("fullname"), role: form.get("role"), password: form.get("password") };
       const { data: invokeData, error } = await client.functions.invoke("admin-users", { body });
-      if (error) return showDialogError(error.message);
+      if (error) return showDialogError(await functionErrorMessage(error, "Không thể lưu tài khoản."));
       const userId = user?.id || invokeData?.id;
       if (userId && body.role === "admin") {
         await client.from("space_admins").delete().eq("user_id", userId);

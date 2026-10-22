@@ -1,8 +1,10 @@
 const fs = require("fs");
-const path = require("path");
 
 function createTimestampAppVersion() {
-  return new Date().toISOString().replace(/[-:T]/g, ".").replace(/\.\d{3}Z$/, "Z");
+  return new Date()
+    .toISOString()
+    .replace(/[-:T]/g, ".")
+    .replace(/\.\d{3}Z$/, "Z");
 }
 
 function validateAppVersion(value) {
