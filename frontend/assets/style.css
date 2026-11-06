@@ -1011,6 +1011,21 @@ select:focus {
   text-wrap: pretty;
 }
 
+/* Links written in question or answer text; they open in a new tab. */
+.question-link {
+  color: var(--cyan-strong);
+  font-weight: inherit;
+  text-decoration: underline;
+  text-decoration-thickness: 0.08em;
+  text-underline-offset: 0.18em;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+
+.question-link:hover {
+  text-decoration-thickness: 0.14em;
+}
+
 .options-grid {
   gap: 10px;
 }

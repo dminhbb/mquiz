@@ -79,6 +79,14 @@ Khi thêm thay đổi database:
 
 Dọn dữ liệu định kỳ (tuỳ chọn, Supabase Cron): `select public.purge_stale_quiz_attempt_sessions();` xóa session Thi thử cũ hơn 2 ngày; session Thi thật được giữ làm dấu vết sử dụng lượt.
 
+## Thay đổi gần đây: timer 300s và Không giới hạn
+
+`timer_seconds = 0` nghĩa là không giới hạn thời gian mỗi câu (Luyện tập, Thi thử và Đợt thi thật). Điểm Thời gian của lượt không giới hạn tính theo mốc 300s/câu; `quiz-attempt` chỉ nhận bài nộp trong 24 giờ kể từ khi bắt đầu.
+
+1. Chạy `supabase/add_unlimited_and_300s_question_timers.sql` (nới ràng buộc `timer_seconds` của `real_exams`, `real_exam_revisions`, `quiz_attempt_sessions`).
+2. `npm run deploy:quiz-attempt && npm run deploy:quiz-evaluate`.
+3. Phát hành frontend + admin: `npm run version:bump && npm run build`.
+
 ## Deploy Edge Function
 
 ```bash

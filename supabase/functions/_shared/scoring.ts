@@ -20,6 +20,10 @@ export const MULTI_WEIGHT_MAX = 2;
 export const MIN_REASONABLE_DURATION_RATIO = 0.3;
 /** Default grace period (minutes) for the punctuality score when a Space has none configured. */
 export const DEFAULT_ALLOWED_LATE_MINUTES = 30;
+/** `timer_seconds` value meaning "Không giới hạn" (no per-question time limit). */
+export const UNLIMITED_TIMER_SECONDS = 0;
+/** Seconds per question used to score the duration of an attempt without a time limit. */
+export const UNLIMITED_TIMER_REFERENCE_SECONDS = 300;
 const MAX_SCORE = 100;
 const SCORE_DECIMALS = 100;
 const MINUTES_PER_HOUR = 60;
@@ -41,7 +45,7 @@ export interface ScoringInput {
   /** Number of questions in the pool the attempt was drawn from. */
   bankQuestionCount: number;
   durationSeconds: number;
-  /** Seconds allowed per question. */
+  /** Seconds allowed per question; UNLIMITED_TIMER_SECONDS (0) means no limit. */
   timerSeconds: number;
   /** Punctuality score (0-5) already computed for method 1; ignored for method 2. */
   punctualityScore: number;
@@ -65,6 +69,13 @@ export interface ScoreBreakdown {
 const roundScore = (value: number): number => Math.round(value * SCORE_DECIMALS) / SCORE_DECIMALS;
 const clamp = (value: number, min: number, max: number): number =>
   Math.min(max, Math.max(min, value));
+
+/** Seconds per question the duration score is measured against (300s when unlimited). */
+export function scoringTimerSeconds(timerSeconds: number): number {
+  return timerSeconds === UNLIMITED_TIMER_SECONDS
+    ? UNLIMITED_TIMER_REFERENCE_SECONDS
+    : timerSeconds;
+}
 
 /** Calculates the composite score and per-question correctness for one attempt. */
 export function calculateAttemptScore(input: ScoringInput): ScoreBreakdown {
@@ -107,7 +118,7 @@ export function calculateAttemptScore(input: ScoringInput): ScoreBreakdown {
     totalWeight += weight;
   }
 
-  const maximumDuration = totalQuestions * input.timerSeconds;
+  const maximumDuration = totalQuestions * scoringTimerSeconds(input.timerSeconds);
   const common = {
     scoringMethod,
     multiCorrectCount,

@@ -3,7 +3,9 @@ import { describe, it } from "node:test";
 import {
   calcQuestionCount,
   calculateAttemptScore,
-  calculatePunctualityScore
+  calculatePunctualityScore,
+  UNLIMITED_TIMER_REFERENCE_SECONDS,
+  UNLIMITED_TIMER_SECONDS
 } from "../supabase/functions/_shared/scoring.ts";
 import type { ScoringInput, ScoringQuestion } from "../supabase/functions/_shared/scoring.ts";
 
@@ -259,6 +261,33 @@ describe("calculateAttemptScore", () => {
     });
     assert.ok(result.score <= 100);
     assert.equal(result.punctualityScore, 5);
+  });
+
+  it("scores the duration of an unlimited attempt as if each question had 300s", () => {
+    const questions: ScoringQuestion[] = [
+      { id: 1, type: "single", correct: ["A"] },
+      { id: 2, type: "single", correct: ["B"] }
+    ];
+    for (const scoringMethod of [1, 2] as const) {
+      const base = {
+        questions,
+        selections: { 1: ["A"], 2: ["B"] },
+        scoringMethod,
+        bankQuestionCount: 2,
+        durationSeconds: 400,
+        punctualityScore: 0
+      };
+      const unlimited = calculateAttemptScore({
+        ...base,
+        timerSeconds: UNLIMITED_TIMER_SECONDS
+      });
+      const reference = calculateAttemptScore({
+        ...base,
+        timerSeconds: UNLIMITED_TIMER_REFERENCE_SECONDS
+      });
+      assert.deepEqual(unlimited, reference);
+      assert.ok(unlimited.durationScore > 0, "a 400s run over 2 x 300s still earns time points");
+    }
   });
 });
 

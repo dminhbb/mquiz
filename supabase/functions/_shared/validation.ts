@@ -2,6 +2,8 @@
 import { AppError } from "./http.ts";
 
 const MAX_ID_LIST_LENGTH = 500;
+/** Longest per-question timer accepted from a request. */
+export const MAX_TIMER_SECONDS = 600;
 
 export function requireString(value: unknown, label: string, maxLength: number): string {
   if (typeof value !== "string") throw new AppError(`${label} không hợp lệ.`);
@@ -13,6 +15,15 @@ export function requireString(value: unknown, label: string, maxLength: number):
 export function requirePositiveInt(value: unknown, label: string): number {
   const parsed = typeof value === "number" ? value : Number.NaN;
   if (!Number.isSafeInteger(parsed) || parsed <= 0) throw new AppError(`${label} không hợp lệ.`);
+  return parsed;
+}
+
+/** Seconds per question: 1..MAX_TIMER_SECONDS, or 0 for "Không giới hạn". */
+export function requireTimerSeconds(value: unknown, label: string): number {
+  const parsed = typeof value === "number" ? value : Number.NaN;
+  if (!Number.isSafeInteger(parsed) || parsed < 0 || parsed > MAX_TIMER_SECONDS) {
+    throw new AppError(`${label} không hợp lệ.`);
+  }
   return parsed;
 }
 

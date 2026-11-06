@@ -6,6 +6,9 @@
   const APP_VERSION = document.querySelector('meta[name="app-version"]')?.content || "unknown";
   const APP_VERSION_URL = new URL("../app-version.json", document.currentScript?.src || adminBaseUrl);
   const APP_VERSION_CHECK_INTERVAL_MS = 60_000;
+  /** timer_seconds = 0 means "Không giới hạn" (no per-question time limit). */
+  const UNLIMITED_TIMER_SECONDS = 0;
+  const REAL_EXAM_TIMER_OPTIONS_SECONDS = [30, 45, 60, 90, 120, 300, UNLIMITED_TIMER_SECONDS];
   const config = window.__SQ_SUPABASE__ || {};
   const client = window.supabase?.createClient(config.url, config.anonKey);
   let dialogErrorTimer = null;
@@ -1894,7 +1897,7 @@
         <div class="grid two real-exam-row">
           <label>Số lượng câu hỏi<input type="number" name="question_count" min="5" max="${Math.max(5, initialPool.total)}" value="${initialQuestionCount}" required></label>
           <label>Tỷ lệ câu nhiều đáp án<input type="number" name="multi_count" min="0" max="${Math.max(0, initialPool.multi)}" value="${initialMultiCount}" required></label>
-          ${selectField("timer_seconds", "Thời gian mỗi câu", [30,45,60,90,120], sourceExam?.timer_seconds || 60, "s")}
+          ${selectField("timer_seconds", "Thời gian mỗi câu", REAL_EXAM_TIMER_OPTIONS_SECONDS, sourceExam?.timer_seconds ?? 60, "s", (value) => value === UNLIMITED_TIMER_SECONDS ? "Không giới hạn" : `${value}s`)}
           ${selectField("max_attempts", "Số lần thi tối đa", [1,2,3,4,5,6,7,8,9,10], sourceExam?.max_attempts || 1, "")}
         </div>
         <div class="scoring-field-row">
@@ -2396,8 +2399,8 @@
       : `<b>Tính điểm chi tiết</b><span>75 điểm kiến thức có tính gần đúng; 10 điểm quy mô đề; 10 điểm tốc độ; 5 điểm đúng giờ.</span>`;
   }
 
-  function selectField(name, label, values, selected, suffix) {
-    return `<label>${label}<select name="${name}">${values.map((value) => `<option value="${value}" ${Number(selected) === value ? "selected" : ""}>${value}${suffix}</option>`).join("")}</select></label>`;
+  function selectField(name, label, values, selected, suffix, formatLabel = (value) => `${value}${suffix}`) {
+    return `<label>${label}<select name="${name}">${values.map((value) => `<option value="${value}" ${Number(selected) === value ? "selected" : ""}>${esc(formatLabel(value))}</option>`).join("")}</select></label>`;
   }
 
   function toLocalDateInput(value) {

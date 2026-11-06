@@ -271,6 +271,42 @@ Deno.test("submit after the allowed time is rejected and not saved", async () =>
   assert.equal(db.tables.quiz_attempts.length, 0);
 });
 
+Deno.test(
+  "mock attempt without a time limit: timer 0 is stored and capped at 24 hours",
+  async () => {
+    seed();
+    assert.equal((await call(attemptHandler, mockStart({ timer_seconds: -1 }))).status, 400);
+    assert.equal((await call(attemptHandler, mockStart({ timer_seconds: 601 }))).status, 400);
+
+    const started = await call(attemptHandler, mockStart({ timer_seconds: 0 }));
+    assert.equal(started.status, 200);
+    assert.equal(db.tables.quiz_attempt_sessions[0].timer_seconds, 0);
+    // Well past 5 x 60s x 1.5 + 120s, but within the 24-hour cap for unlimited attempts.
+    db.tables.quiz_attempt_sessions[0].started_at = new Date(Date.now() - 3_600_000).toISOString();
+    const submitted = await call(attemptHandler, {
+      action: "submit",
+      attempt_id: started.body.attempt_id,
+      selections: { 1: ["A"] },
+      save: true
+    });
+    assert.equal(submitted.status, 200);
+    assert.equal(db.tables.quiz_attempts[0].timer_seconds, 0);
+
+    const late = await call(attemptHandler, mockStart({ timer_seconds: 0 }));
+    db.tables.quiz_attempt_sessions[1].started_at = new Date(
+      Date.now() - 25 * 3_600_000
+    ).toISOString();
+    const rejected = await call(attemptHandler, {
+      action: "submit",
+      attempt_id: late.body.attempt_id,
+      selections: {},
+      save: true
+    });
+    assert.equal(rejected.status, 409);
+    assert.equal(db.tables.quiz_attempts.length, 1);
+  }
+);
+
 Deno.test("ending early returns answers but saves nothing", async () => {
   seed();
   const { body } = await call(attemptHandler, mockStart());

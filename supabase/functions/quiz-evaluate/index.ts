@@ -21,11 +21,15 @@ import { enforceRateLimit } from "../_shared/rate-limit.ts";
 import { calculateAttemptScore, calculatePunctualityScore } from "../_shared/scoring.ts";
 import { createServiceClient } from "../_shared/supabase.ts";
 import type { SupabaseClient } from "../_shared/supabase.ts";
-import { requireIdList, requirePositiveInt, requireString } from "../_shared/validation.ts";
+import {
+  MAX_TIMER_SECONDS,
+  requireIdList,
+  requirePositiveInt,
+  requireString
+} from "../_shared/validation.ts";
 
 const HTTP_NOT_FOUND = 404;
 const MAX_SLUG_LENGTH = 120;
-const MAX_TIMER_SECONDS = 600;
 const DEFAULT_TIMER_SECONDS = 60;
 /** Practice duration is reported by the browser and only affects the on-screen score. */
 const MAX_PRACTICE_DURATION_SECONDS = 24 * 60 * 60;
@@ -69,9 +73,10 @@ async function reviewPractice(admin: SupabaseClient, body: Record<string, unknow
   );
   const bankQuestionCount = filterBySets(await loadSpaceQuestions(admin, space.id), setIds).length;
 
-  const requestedTimer = Number(body.timer_seconds);
+  // 0 means "Không giới hạn"; a missing or malformed value falls back to the Space default.
+  const requestedTimer = typeof body.timer_seconds === "number" ? body.timer_seconds : Number.NaN;
   const timerSeconds =
-    Number.isSafeInteger(requestedTimer) && requestedTimer > 0
+    Number.isSafeInteger(requestedTimer) && requestedTimer >= 0
       ? Math.min(requestedTimer, MAX_TIMER_SECONDS)
       : Number(space.timer_seconds || DEFAULT_TIMER_SECONDS);
   const reportedDuration = Number(body.duration_seconds);

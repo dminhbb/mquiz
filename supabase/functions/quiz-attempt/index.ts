@@ -26,7 +26,8 @@ import { enforceRateLimit } from "../_shared/rate-limit.ts";
 import {
   calcQuestionCount,
   calculateAttemptScore,
-  calculatePunctualityScore
+  calculatePunctualityScore,
+  UNLIMITED_TIMER_SECONDS
 } from "../_shared/scoring.ts";
 import type { ScoringMethod } from "../_shared/scoring.ts";
 import { createServiceClient } from "../_shared/supabase.ts";
@@ -36,6 +37,7 @@ import {
   requireIdList,
   requirePositiveInt,
   requireString,
+  requireTimerSeconds,
   studentNameKey
 } from "../_shared/validation.ts";
 
@@ -45,7 +47,6 @@ const POSTGRES_RAISE_EXCEPTION = "P0001";
 const MAX_STUDENT_NAME_LENGTH = 80;
 const MAX_GROUP_NAME_LENGTH = 120;
 const MAX_SLUG_LENGTH = 120;
-const MAX_TIMER_SECONDS = 600;
 const MAX_FOCUS_VIOLATIONS = 1000;
 /** Question-count shares a Thi thử (mock) attempt may use. */
 const MOCK_QUESTION_PERCENTS = [30, 50, 70, 100] as const;
@@ -54,6 +55,8 @@ const REAL_EXAM_QUESTION_PERCENT = 100;
 /** Per-question timers are enforced by the browser; the server allows this much slack in total. */
 const TIME_OVERRUN_FACTOR = 1.5;
 const TIME_GRACE_SECONDS = 120;
+/** Attempts without a per-question limit must still be submitted within this time. */
+const MAX_UNLIMITED_ATTEMPT_SECONDS = 24 * 60 * 60;
 const MS_PER_SECOND = 1000;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -139,8 +142,7 @@ async function startAttempt(admin: SupabaseClient, body: Record<string, unknown>
       MOCK_QUESTION_PERCENTS.map((percent) => calcQuestionCount(pool.length, percent))
     );
     pickQuestions(pool, questionIds);
-    timerSeconds = requirePositiveInt(body.timer_seconds, "Thời gian mỗi câu");
-    if (timerSeconds > MAX_TIMER_SECONDS) throw new AppError("Thời gian mỗi câu không hợp lệ.");
+    timerSeconds = requireTimerSeconds(body.timer_seconds, "Thời gian mỗi câu");
     bankQuestionCount = pool.length;
   }
 
@@ -198,9 +200,12 @@ async function submitAttempt(admin: SupabaseClient, body: Record<string, unknown
     0,
     Math.round((Date.parse(session.finished_at) - Date.parse(session.started_at)) / MS_PER_SECOND)
   );
-  const allowedSeconds = Math.ceil(
-    questionIds.length * session.timer_seconds * TIME_OVERRUN_FACTOR + TIME_GRACE_SECONDS
-  );
+  const allowedSeconds =
+    session.timer_seconds === UNLIMITED_TIMER_SECONDS
+      ? MAX_UNLIMITED_ATTEMPT_SECONDS
+      : Math.ceil(
+          questionIds.length * session.timer_seconds * TIME_OVERRUN_FACTOR + TIME_GRACE_SECONDS
+        );
   if (elapsedSeconds > allowedSeconds) {
     throw new AppError(
       "Đã quá thời gian làm bài cho phép nên kết quả không được ghi nhận.",

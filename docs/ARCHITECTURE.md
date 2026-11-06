@@ -59,7 +59,7 @@ dist/                     output sinh ra; không sửa trực tiếp
 ### Luồng `start` → `submit`
 
 1. Client chọn câu hỏi, gọi `quiz-attempt` `start`; server xác thực tên/group/danh sách câu, ghi `quiz_attempt_sessions` (thời điểm bắt đầu, câu hỏi, timer, scoring method do server cố định) và trả `attempt_id`. Với Thi thật, lượt thi được tính ngay khi bắt đầu.
-2. Khi nộp, client chỉ gửi lựa chọn. Server "claim" session (chống nộp lặp), kiểm tra tổng thời gian cho phép (`số câu × timer × 1,5 + 120 s`), chấm điểm bằng `_shared/scoring.ts`, ghi `quiz_attempts` bằng service role rồi trả điểm, đúng/sai và đáp án để xem lại. Nếu ghi thất bại, session được nhả để thử lại.
+2. Khi nộp, client chỉ gửi lựa chọn. Server "claim" session (chống nộp lặp), kiểm tra tổng thời gian cho phép (`số câu × timer × 1,5 + 120 s`; timer `0` = Không giới hạn thì tối đa 24 giờ), chấm điểm bằng `_shared/scoring.ts`, ghi `quiz_attempts` bằng service role rồi trả điểm, đúng/sai và đáp án để xem lại. Nếu ghi thất bại, session được nhả để thử lại.
 3. Trình duyệt không có quyền `insert` vào `quiz_attempts`; trigger `attach_real_exam_metadata` vẫn kiểm tra lại lịch và giới hạn lượt ở tầng database.
 
 Rủi ro còn lại (không có đăng nhập cho người thi): tên học viên không xác thực, nên có thể mạo danh và tiêu hao lượt người khác; giới hạn tần suất theo IP và kiểm tra `focus_violation_count` do client báo chỉ giảm thiểu, không loại bỏ.

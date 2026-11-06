@@ -37,7 +37,13 @@
   const MS_PER_DAY = 24 * 60 * 60 * 1000;
   const LEADERBOARD_MOCK_ROW_LIMIT = 1_000;
   const LEADERBOARD_VISIBLE_ROWS = 15;
-  const TIMER_OPTIONS_SECONDS = [15, 30, 45, 60, 90, 120];
+  const TIMER_OPTIONS_SECONDS = [15, 30, 45, 60, 90, 120, 300];
+  /** Server value of timer_seconds for "Không giới hạn"; the browser state uses null. */
+  const UNLIMITED_TIMER_SECONDS = 0;
+  /** A window departure this soon after clicking a link in a question is not a violation. */
+  const QUESTION_LINK_DEPARTURE_GRACE_MS = 2_000;
+  const QUESTION_LINK_PATTERN = /\b(?:https?:\/\/|www\.)[^\s<>"'`]+/gi;
+  const QUESTION_LINK_TRAILING_PUNCTUATION = ".,;:!?]}";
   const QUESTION_PERCENT_OPTIONS = [30, 50, 70, 100];
   const DEFAULT_TIMER_SECONDS = 60;
   const DEFAULT_QUESTION_PERCENT = 50;
@@ -86,6 +92,7 @@
     cloudLoadError: "",
     focusViolationCount: 0,
     examWindowAway: false,
+    questionLinkOpenedAt: 0,
     updateAvailableVersion: ""
   };
 
@@ -97,6 +104,7 @@
   document.addEventListener("visibilitychange", handleExamVisibilityChange);
   window.addEventListener("blur", recordExamWindowDeparture);
   window.addEventListener("focus", markExamWindowActive);
+  document.addEventListener("click", rememberQuestionLinkClick, true);
 
   /**
    * Prevents selecting, dragging, opening a context menu, or copying quiz content.
@@ -112,6 +120,80 @@
   }
 
   const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
+
+  /**
+   * Drops sentence punctuation after a URL; a closing parenthesis is kept when it closes
+   * one opened inside the URL (e.g. Wikipedia links).
+   *
+   * @param {string} url
+   * @returns {string}
+   */
+  function trimLinkEnd(url) {
+    let end = url.length;
+    while (end > 0) {
+      const last = url[end - 1];
+      const head = url.slice(0, end);
+      const unbalancedParen = last === ")" && head.split(")").length > head.split("(").length;
+      if (!QUESTION_LINK_TRAILING_PUNCTUATION.includes(last) && !unbalancedParen) break;
+      end -= 1;
+    }
+    return url.slice(0, end);
+  }
+
+  /**
+   * @param {string} url Text that looks like a link.
+   * @returns {string} Normalized http(s) URL, or "" when it is not a safe web link.
+   */
+  function safeLinkHref(url) {
+    try {
+      const parsed = new URL(/^www\./i.test(url) ? `https://${url}` : url);
+      return parsed.protocol === "http:" || parsed.protocol === "https:" ? parsed.href : "";
+    } catch {
+      return "";
+    }
+  }
+
+  /**
+   * Escapes question text and turns http(s)/www links into links that open in a new tab.
+   *
+   * @param {unknown} value Plain question or option text.
+   * @returns {string} Safe HTML.
+   */
+  function linkify(value) {
+    const text = String(value ?? "");
+    let html = "";
+    let lastIndex = 0;
+    for (const match of text.matchAll(QUESTION_LINK_PATTERN)) {
+      const url = trimLinkEnd(match[0]);
+      const href = url ? safeLinkHref(url) : "";
+      if (!href) continue;
+      html += `${esc(text.slice(lastIndex, match.index))}<a class="question-link" href="${esc(href)}" target="_blank" rel="noopener noreferrer" data-question-link>${esc(url)}</a>`;
+      lastIndex = match.index + url.length;
+    }
+    return html + esc(text.slice(lastIndex));
+  }
+
+  /**
+   * Remembers when a student opened a link from the question, so leaving the exam
+   * window to read it is not recorded as a violation.
+   *
+   * @param {MouseEvent} event
+   * @returns {void}
+   */
+  function rememberQuestionLinkClick(event) {
+    if (event.target instanceof Element && event.target.closest("[data-question-link]")) {
+      state.questionLinkOpenedAt = Date.now();
+    }
+  }
+
+  /**
+   * @param {unknown} value timer_seconds from the server (0 = unlimited).
+   * @returns {number | null} Seconds per question, or null for "Không giới hạn".
+   */
+  function timerFromServer(value) {
+    return value === UNLIMITED_TIMER_SECONDS ? null : Number(value || DEFAULT_TIMER_SECONDS);
+  }
+
   const sorted = (letters) => [...new Set(letters || [])].sort();
   const currentQuestion = () => state.space.questions.find((question) => question.id === state.selectedIds[state.current]);
   const isRealExamExperience = () => state.entryKind === "real" && Boolean(state.space?.real_exam?.enabled);
@@ -266,7 +348,7 @@
       state.space = {
         id: examSpace.id,
         name: examSpace.name,
-        timer_seconds: Number(data.timer_seconds || DEFAULT_TIMER_SECONDS),
+        timer_seconds: timerFromServer(data.timer_seconds),
         groups: Array.isArray(examSpace.groups) ? examSpace.groups : [],
         question_sets: [{ id: 0, name: `Đề thi #${String(data.code).padStart(5, "0")}` }],
         questions: questions.map((question) => ({
@@ -288,7 +370,7 @@
           manual_running: data.manual_running !== false,
           scoring_method: Number(data.scoring_method || 2),
           question_percent: 100,
-          timer_seconds: Number(data.timer_seconds || DEFAULT_TIMER_SECONDS),
+          timer_seconds: timerFromServer(data.timer_seconds),
           multi_percent: 100,
           max_attempts: Number(data.max_attempts || 1),
           question_sets: [],
@@ -333,7 +415,7 @@
     if (isRealExamExperience()) {
       state.mode = "real";
       state.percent = Number(state.space.real_exam.question_percent || DEFAULT_QUESTION_PERCENT);
-      state.timerSeconds = Number(state.space.real_exam.timer_seconds || DEFAULT_TIMER_SECONDS);
+      state.timerSeconds = state.space.real_exam.timer_seconds;
     } else {
       state.mode = "mock";
       state.timerSeconds = Number(state.space.timer_seconds || DEFAULT_TIMER_SECONDS);
@@ -427,6 +509,8 @@
   function recordExamWindowDeparture() {
     if (!isQuizInProgress() || state.examWindowAway) return;
     state.examWindowAway = true;
+    // Reading a link from the question in a new tab is allowed.
+    if (Date.now() - state.questionLinkOpenedAt < QUESTION_LINK_DEPARTURE_GRACE_MS) return;
     state.focusViolationCount = Math.min(
       MAX_FOCUS_VIOLATION_COUNT,
       state.focusViolationCount + 1
@@ -636,13 +720,10 @@
     if (realExam) {
       state.mode = "real";
       state.percent = Number(state.space.real_exam.question_percent || DEFAULT_QUESTION_PERCENT);
-      state.timerSeconds = Number(state.space.real_exam.timer_seconds || DEFAULT_TIMER_SECONDS);
+      state.timerSeconds = state.space.real_exam.timer_seconds;
     }
     const questionPool = questionPoolForMode();
     const total = questionPool.length;
-    if (state.mode === "mock" && state.timerSeconds === null) {
-      state.timerSeconds = Number(state.space.timer_seconds || DEFAULT_TIMER_SECONDS);
-    }
     const savedName = normalizeStudentName(state.studentName);
     const realAttempts = getRealAttemptCount(savedName);
     const maxRealAttempts = Number(state.space.real_exam?.max_attempts || 1);
@@ -666,7 +747,7 @@
       realAvailabilityNotice = `<section class="real-exam-availability ended" role="status"><span class="real-exam-space-name">${esc(realSpaceName)}</span><strong>${esc(realExamIdentity)}</strong><p>Đã hết thời gian đợt thi</p><p>${esc(realWindowLabel)}</p></section>`;
     }
     const visibleQuestionPercents = realExam ? [state.percent] : QUESTION_PERCENT_OPTIONS;
-    const visibleTimerOptions = realExam ? [state.timerSeconds] : TIMER_OPTIONS_SECONDS;
+    const visibleTimerOptions = realExam ? [state.timerSeconds] : [...TIMER_OPTIONS_SECONDS, null];
     renderShell(`<section class="leaderboard-shell setup-dashboard">
       <aside class="setup-sidebar">
         <div class="setup-logo"><span>m</span><b>quiz</b></div>
@@ -733,8 +814,7 @@
           <section class="setup-widget">
             <div class="widget-title"><h2>Thời gian mỗi câu</h2><p>Áp dụng riêng cho từng câu hỏi.</p></div>
             <div class="choice-grid timer-grid">
-              ${visibleTimerOptions.map((seconds) => `<button class="${Number(state.timerSeconds) === seconds ? "active" : ""}" data-timer="${seconds}" ${realExam ? "disabled" : ""}><b>${seconds}s</b></button>`).join("")}
-              ${state.mode === "practice" ? `<button class="${state.timerSeconds === null ? "active" : ""}" data-timer="none"><b>Không giới hạn</b></button>` : ""}
+              ${visibleTimerOptions.map((seconds) => `<button class="${state.timerSeconds === seconds ? "active" : ""}" data-timer="${seconds ?? "none"}" ${realExam ? "disabled" : ""}><b>${seconds === null ? "Không giới hạn" : `${seconds}s`}</b></button>`).join("")}
             </div>
           </section>
         </div>`)}
@@ -971,7 +1051,7 @@
           group_name: state.groupName,
           question_ids: state.selectedIds,
           question_set_ids: state.mode === "mock" ? selectedQuestionSetIdsForMode() : undefined,
-          timer_seconds: state.timerSeconds
+          timer_seconds: state.timerSeconds ?? UNLIMITED_TIMER_SECONDS
         });
         state.attemptId = String(session.attempt_id || "");
       } catch (error) {
@@ -1360,7 +1440,7 @@
       </aside>
       <div class="panel grid quiz-panel" data-copy-protected>
         <div class="type-pill ${question.type === "multi" ? "multi" : ""}">${question.type === "single" ? "Một đáp án" : "Nhiều lựa chọn"}</div>
-        <div class="large-question">${esc(question.content)}</div>
+        <div class="large-question">${linkify(question.content)}</div>
         <div class="grid options-grid">${Object.entries(question.options).map(([letter, text]) => {
           const isSelected = selection.includes(letter);
           const isCorrect = answerLetters.includes(letter);
@@ -1368,7 +1448,7 @@
           const cls = ["choice", isSelected ? "selected" : "", locked ? "locked" : "", locked && isCorrect ? "correct" : "", isWrongChoice ? "wrong" : ""].filter(Boolean).join(" ");
           return `<label class="${cls}">
             <input class="choice-control" type="${question.type === "single" ? "radio" : "checkbox"}" name="question-${question.id}" value="${letter}" data-choice="${letter}" ${isSelected ? "checked" : ""} ${locked ? "disabled" : ""}>
-            <b>${letter}</b><span>${esc(text)}</span>
+            <b>${letter}</b><span>${linkify(text)}</span>
           </label>`;
         }).join("")}</div>
         ${locked ? reviewHtml(question, correct, answerLetters) : ""}
@@ -1427,7 +1507,7 @@
   function reviewHtml(question, correct, answers) {
     if (state.mode !== "practice" && !state.done) return "";
     const answerText = answers.length ? answers.map((letter) => `${letter}. ${question.options[letter]}`).join("; ") : "Đang tải đáp án...";
-    return `<div class="review ${correct ? "correct" : "wrong"}"><b>${correct ? "Đúng" : "Sai"}</b><div>Đáp án đúng: ${esc(answerText)}</div></div>`;
+    return `<div class="review ${correct ? "correct" : "wrong"}"><b>${correct ? "Đúng" : "Sai"}</b><div>Đáp án đúng: ${linkify(answerText)}</div></div>`;
   }
 
   function toggleChoice(question, letter) {
@@ -1595,7 +1675,7 @@
         question_ids: state.selectedIds,
         question_set_ids: selectedQuestionSetIdsForMode(),
         selections,
-        timer_seconds: state.timerSeconds,
+        timer_seconds: state.timerSeconds ?? UNLIMITED_TIMER_SECONDS,
         duration_seconds: Math.max(0, Math.round((Date.now() - (state.startedAt || Date.now())) / 1000))
       });
     }
@@ -1680,12 +1760,12 @@
             : isMissingMultiAnswer
               ? "Bạn bỏ sót đáp án đúng"
               : isCorrect && isSelected ? "Bạn chọn đúng" : "";
-          return `<li class="${classes}"><b>${esc(letter)}</b><span>${esc(text)}</span>${marker ? `<small>${marker}</small>` : ""}</li>`;
+          return `<li class="${classes}"><b>${esc(letter)}</b><span>${linkify(text)}</span>${marker ? `<small>${marker}</small>` : ""}</li>`;
         }).join("");
         return `<div class="panel review ${state.correctness[id] ? "correct" : "wrong"}">
-          <h3>Câu ${index + 1}. ${esc(question.content)}</h3>
-          <p><b>Bạn chọn:</b> ${esc(selected.length ? selected.map((letter) => `${letter}. ${question.options[letter]}`).join("; ") : "Chưa trả lời")}</p>
-          <p><b>Đáp án đúng:</b> ${esc(answers.map((letter) => `${letter}. ${question.options[letter]}`).join("; "))}</p>
+          <h3>Câu ${index + 1}. ${linkify(question.content)}</h3>
+          <p><b>Bạn chọn:</b> ${linkify(selected.length ? selected.map((letter) => `${letter}. ${question.options[letter]}`).join("; ") : "Chưa trả lời")}</p>
+          <p><b>Đáp án đúng:</b> ${linkify(answers.map((letter) => `${letter}. ${question.options[letter]}`).join("; "))}</p>
           <ul class="result-answer-options" aria-label="Chi tiết đáp án câu ${index + 1}">${optionReport}</ul>
         </div>`;
       }).join("")}</div>
