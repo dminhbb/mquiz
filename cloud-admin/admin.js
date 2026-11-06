@@ -295,14 +295,14 @@
         <td class="settings-cell"><div class="space-row-actions">
           <button class="row-primary-action" data-space-settings="${space.id}" title="Cấu hình Space" aria-label="Cấu hình Space"><i data-lucide="settings"></i></button>
           <button class="icon-button" data-share-space="${space.id}" title="Chia sẻ Space" aria-label="Chia sẻ Space"><i data-lucide="share-2"></i></button>
-          <button class="icon-button danger" data-delete-space="${space.id}" title="Xóa Space" aria-label="Xóa Space"><i data-lucide="trash-2"></i></button>
+          <button class="icon-button danger" data-delete-space="${space.id}" data-space-slug="${esc(space.slug)}" title="Xóa Space" aria-label="Xóa Space"><i data-lucide="trash-2"></i></button>
         </div></td>
       </tr>`).join("")}</tbody>
     </table></section>`;
     document.getElementById("addSpaceBtn").onclick = () => openSpace();
     bind("[data-share-space]", (button) => openShare(Number(button.dataset.shareSpace)));
     bind("[data-space-settings]", (button) => openSpaceSettings(Number(button.dataset.spaceSettings)));
-    bind("[data-delete-space]", (button) => deleteSpace(Number(button.dataset.deleteSpace)));
+    bind("[data-delete-space]", (button) => deleteSpace(Number(button.dataset.deleteSpace), button.dataset.spaceSlug || ""));
     window.lucide?.createIcons();
   }
 
@@ -2219,11 +2219,26 @@
     }
   }
 
-  async function deleteSpace(id) {
-    if (!confirm("Xóa Space và toàn bộ Group/câu hỏi của Space này?")) return;
-    const { error } = await client.from("spaces").delete().eq("id", id);
+  /**
+   * Permanently deletes a Space with its Groups, question banks, questions, real exams and
+   * all results (delete_space_cascade); the admin must type the slug to confirm.
+   *
+   * @param {number} id
+   * @param {string} slug
+   * @returns {Promise<void>}
+   */
+  async function deleteSpace(id, slug) {
+    const typedSlug = prompt(
+      `Xóa vĩnh viễn Space /${slug}: toàn bộ Group, Ngân hàng câu hỏi, câu hỏi, Đợt thi thật và kết quả làm bài sẽ bị xóa, không thể khôi phục.\n\nHãy xuất kết quả hoặc tạo backup trước nếu cần.\n\nNhập slug "${slug}" để xác nhận:`
+    );
+    if (typedSlug === null) return;
+    if (typedSlug.trim() !== slug) return setStatus("Slug xác nhận không khớp. Space chưa bị xóa.", true);
+    const { error } = await client.rpc("delete_space_cascade", {
+      requested_space_id: id,
+      requested_slug: slug
+    });
     if (error) return setStatus(error.message, true);
-    await renderSpaces();
+    setStatus(`Đã xóa Space /${slug}.`);
   }
 
   function formatExportDateTime(value) {

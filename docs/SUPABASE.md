@@ -87,6 +87,10 @@ Dọn dữ liệu định kỳ (tuỳ chọn, Supabase Cron): `select public.pur
 2. `npm run deploy:quiz-attempt && npm run deploy:quiz-evaluate`.
 3. Phát hành frontend + admin: `npm run version:bump && npm run build`.
 
+## Thay đổi gần đây: xóa Space có Đợt thi thật
+
+`real_exams.space_id` là `on delete restrict`, nên xóa thẳng bảng `spaces` bị lỗi `real_exams_space_id_fkey` khi Space đã có Đợt thi thật. Chạy `supabase/delete_space_with_real_exams.sql` để `delete_space_cascade` (chỉ superadmin, xác nhận bằng slug) xóa cả kết quả, revision/snapshot và Đợt thi thật trước khi xóa Space; hàm từ chối khi còn đợt thi đang diễn ra. Admin gọi RPC này từ nút Xóa Space. Mã đợt thi và mã câu hỏi trong các registry được giữ lại để không cấp lại.
+
 ## Deploy Edge Function
 
 ```bash

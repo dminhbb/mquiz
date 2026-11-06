@@ -8,6 +8,7 @@ node_modules/
 # Generated deployment files
 dist/
 dist-cloudflare/
+dist-functions/
 _site/
 *.zip
 
