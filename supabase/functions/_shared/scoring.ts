@@ -129,12 +129,15 @@ export function calculateAttemptScore(input: ScoringInput): ScoreBreakdown {
   };
 
   if (scoringMethod === 2) {
-    // Method 2: knowledge = correct ratio x 95; duration = unused share of the maximum time x 5.
+    // Method 2: knowledge = correct ratio x 95; duration = unused share of the maximum time
+    // x 5, scaled by the correct ratio so a fast blank submission earns nothing.
     const weights = SCORE_WEIGHTS.method2;
-    const knowledgeScore = totalQuestions ? (correctCount / totalQuestions) * weights.knowledge : 0;
+    const correctRatio = totalQuestions ? correctCount / totalQuestions : 0;
+    const knowledgeScore = correctRatio * weights.knowledge;
     const durationScore =
       maximumDuration > 0
-        ? clamp(
+        ? correctRatio *
+          clamp(
             ((maximumDuration - input.durationSeconds) / maximumDuration) * weights.duration,
             0,
             weights.duration
@@ -150,22 +153,26 @@ export function calculateAttemptScore(input: ScoringInput): ScoreBreakdown {
     };
   }
 
+  // Method 1: coverage, duration and punctuality are scaled by the knowledge ratio, so they
+  // reward doing the attempt well rather than merely starting and submitting it.
   const weights = SCORE_WEIGHTS.method1;
   const minimumReasonableDuration = maximumDuration * MIN_REASONABLE_DURATION_RATIO;
+  const knowledgeRatio = totalWeight ? earnedWeight / totalWeight : 0;
   const knowledgeScore = totalWeight ? (weights.knowledge * earnedWeight) / totalWeight : 0;
   const coverageScore = input.bankQuestionCount
-    ? (weights.coverage * totalQuestions) / input.bankQuestionCount
+    ? (knowledgeRatio * weights.coverage * totalQuestions) / input.bankQuestionCount
     : 0;
   const durationScore =
-    maximumDuration > minimumReasonableDuration
+    knowledgeRatio *
+    (maximumDuration > minimumReasonableDuration
       ? weights.duration *
         clamp(
           (maximumDuration - input.durationSeconds) / (maximumDuration - minimumReasonableDuration),
           0,
           1
         )
-      : weights.duration;
-  const punctualityScore = clamp(input.punctualityScore, 0, weights.punctuality);
+      : weights.duration);
+  const punctualityScore = knowledgeRatio * clamp(input.punctualityScore, 0, weights.punctuality);
 
   return {
     ...common,

@@ -23,9 +23,15 @@ async function sha256Hex(value: string): Promise<string> {
   return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
+/**
+ * Client address used as the rate-limit bucket. Headers set by the platform proxy are
+ * preferred; the first X-Forwarded-For entry is only a fallback because a client can
+ * prepend its own value there.
+ */
 function clientAddress(request: Request): string {
   return (
     request.headers.get("cf-connecting-ip") ??
+    request.headers.get("x-real-ip") ??
     request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ??
     "unknown"
   );

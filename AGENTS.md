@@ -24,7 +24,7 @@
 
 ## Bất biến nghiệp vụ và bảo mật
 
-1. `correct_json` không được trả về cho người dùng anon. Đáp án chỉ do Edge Function dùng service role trả: `quiz-evaluate` (`check`/`review`, chỉ Luyện tập) và `quiz-attempt` (`submit`, sau khi nộp bài). Không thêm endpoint trả đáp án hàng loạt.
+1. `correct_json` không được trả về cho người dùng anon. Đáp án chỉ do Edge Function dùng service role trả: `quiz-evaluate` (`check`/`review`, chỉ Luyện tập) và `quiz-attempt` (`submit`, sau khi nộp bài; với Thi thật chỉ khi đợt thi đã kết thúc). Câu hỏi thuộc đề của Đợt thi thật chưa kết thúc không được lộ đáp án qua Luyện tập/Thi thử (`is_question_locked_by_real_exam`). Không thêm endpoint trả đáp án hàng loạt.
 2. Thi thật dùng revision/snapshot bất biến. Không sửa câu đã được snapshot; copy hoặc tạo câu mới. Mọi thay đổi nguồn đề phải giữ lịch sử revision và khóa thời điểm thi ở database.
 3. Luyện tập (`practice`) hiển thị phản hồi từng câu nhưng không lưu attempt. Thi thử (`mock`) và Thi thật (`real`) lưu `quiz_attempts`, và **chỉ** Edge Function `quiz-attempt` được ghi bảng này: trình duyệt không có quyền `insert`. Điểm, thời gian bắt đầu, thời lượng và giới hạn lượt do server tính/kiểm tra (`start` mở session, `submit` chấm điểm); client chỉ hiển thị kết quả. Công thức chấm điểm nằm ở `supabase/functions/_shared/scoring.ts`.
 4. Enforcement về quyền, giới hạn lượt, lịch thi, archive/hide và khả năng sửa đề phải nằm trong RLS/RPC/trigger; UI chỉ phản ánh trạng thái đó.

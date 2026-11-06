@@ -38,6 +38,9 @@
   const LEADERBOARD_MOCK_ROW_LIMIT = 1_000;
   const LEADERBOARD_VISIBLE_ROWS = 15;
   const TIMER_OPTIONS_SECONDS = [15, 30, 45, 60, 90, 120, 300];
+  /** PostgREST row cap per request, and the most pages read for one Space (matches the server). */
+  const QUESTION_PAGE_SIZE = 1_000;
+  const MAX_QUESTION_PAGES = 20;
   /** Server value of timer_seconds for "Không giới hạn"; the browser state uses null. */
   const UNLIMITED_TIMER_SECONDS = 0;
   /** A window departure this soon after clicking a link in a question is not a violation. */
@@ -264,6 +267,32 @@
   }
 
   /**
+   * Reads every visible question of a Space, page by page: PostgREST returns at most
+   * QUESTION_PAGE_SIZE rows per request, and the server counts the whole pool.
+   *
+   * @param {any} client Supabase client.
+   * @param {number} spaceId
+   * @returns {Promise<{ data: any[] | null, error: any }>}
+   */
+  async function loadSpaceQuestionRows(client, spaceId) {
+    const rows = [];
+    for (let page = 0; page < MAX_QUESTION_PAGES; page += 1) {
+      const from = page * QUESTION_PAGE_SIZE;
+      const { data, error } = await client
+        .from("questions")
+        .select("id,type,content,options_json,order_no,question_set_id")
+        .eq("space_id", spaceId)
+        .order("order_no")
+        .order("id")
+        .range(from, from + QUESTION_PAGE_SIZE - 1);
+      if (error) return { data: null, error };
+      rows.push(...(data || []));
+      if (!data || data.length < QUESTION_PAGE_SIZE) break;
+    }
+    return { data: rows, error: null };
+  }
+
+  /**
    * Loads a published Space with its groups, question sets and questions into state.
    *
    * @param {string} slug
@@ -284,7 +313,7 @@
       if (!space) return false;
       const [{ data: groups, error: groupError }, { data: questions, error: questionError }, { data: questionSets, error: questionSetError }] = await Promise.all([
         client.from("groups").select("name").eq("space_id", space.id).order("name"),
-        client.from("questions").select("id,type,content,options_json,order_no,question_set_id").eq("space_id", space.id).order("order_no"),
+        loadSpaceQuestionRows(client, space.id),
         client.from("question_sets").select("id,name").eq("space_id", space.id).order("name")
       ]);
       const contentError = groupError || questionError || questionSetError;
@@ -1611,9 +1640,14 @@
   }
 
   async function requestFinishEarly() {
+    const consequence = state.mode === "real"
+      ? "Các câu chưa làm sẽ được tính là sai. Kết quả vẫn được ghi nhận và lượt thi này đã được tính."
+      : state.mode === "mock"
+        ? "Các câu chưa làm sẽ được tính là sai và kết quả lần làm này sẽ không được lưu."
+        : "Các câu chưa làm sẽ được tính là sai.";
     const understood = await confirmDialog({
       title: "Kết thúc sớm",
-      message: "Các câu chưa làm sẽ được tính là sai.",
+      message: consequence,
       confirmText: "Tôi đã hiểu"
     });
     if (!understood) return;
@@ -1624,7 +1658,8 @@
       danger: true
     });
     if (!confirmed) return;
-    await submitQuiz({ includeUnanswered: false, saveResult: false });
+    // Thi thật is always recorded by the server; only Thi thử can be ended without saving.
+    await submitQuiz({ includeUnanswered: false, saveResult: state.mode === "real" });
   }
 
   /**
@@ -1646,7 +1681,8 @@
       }
     }
     try {
-      applyAttemptResult(await requestAttemptResult(shouldSaveResult), shouldSaveResult);
+      const result = await requestAttemptResult(shouldSaveResult);
+      applyAttemptResult(result, typeof result.saved === "boolean" ? result.saved : shouldSaveResult);
     } catch (error) {
       if (isTerminalRequestError(error)) {
         renderAttemptFailure(error.message);
@@ -1697,10 +1733,11 @@
    */
   function applyAttemptResult(result, wasSaved) {
     const breakdown = result.breakdown || {};
-    state.answers = { answers: result.answers || {} };
+    state.answers = { answers: result.answers || {}, hidden: Boolean(result.answers_hidden) };
     state.correctness = result.correctness || {};
     state.scoreBreakdown = {
       score: Number(breakdown.score || 0),
+      correctCount: Number(breakdown.correct_count || 0),
       scoringMethod: Number(breakdown.scoring_method || 1),
       knowledgeScore: Number(breakdown.knowledge_score || 0),
       coverageScore: Number(breakdown.coverage_score || 0),
@@ -1731,16 +1768,27 @@
   function renderResults() {
     stopTimer();
     const total = state.selectedIds.length;
-    const correctCount = state.selectedIds.filter((id) => state.correctness[id]).length;
+    const correctCount = state.scoreBreakdown.correctCount;
+    const revealedAnswers = state.answers?.answers || {};
+    const isRevealed = (id) => Object.prototype.hasOwnProperty.call(revealedAnswers, id);
+    const hideReview = state.mode === "real" && state.answers?.hidden;
     const breakdown = state.scoreBreakdown;
     const score = breakdown.score;
     const questionsById = new Map(state.space.questions.map((question) => [question.id, question]));
     renderShell(`<section class="screen grid">
       <div class="panel result-panel text-center"><div class="score" style="--score:${score}"><span>${score}</span></div><h1>${score} điểm</h1><p class="muted">${correctCount}/${total} câu đúng</p><p class="muted">${breakdown.scoringMethod === 2 ? `Câu trả lời đúng ${breakdown.knowledgeScore}/95 · Thời gian ${breakdown.durationScore}/5` : `Kiến thức ${breakdown.knowledgeScore}/75 · Quy mô ${breakdown.coverageScore}/10 · Thời gian ${breakdown.durationScore}/10 · Đúng giờ ${breakdown.punctualityScore}/5`}</p>${state.resultSaveStatus ? `<p class="muted">${esc(state.resultSaveStatus)}</p>` : ""}<div class="actions center-actions"><button class="primary" id="retryBtn">Làm lại</button><button class="ghost" id="resultLeaderboardBtn">Bảng xếp hạng</button></div></div>
-      <div class="grid">${state.selectedIds.map((id, index) => {
+      ${hideReview ? `<div class="status-panel" role="status">Đáp án không hiển thị khi Đợt thi thật đang diễn ra.</div>` : ""}
+      <div class="grid">${hideReview ? "" : state.selectedIds.map((id, index) => {
         const question = questionsById.get(id);
         const selected = state.selections[id] || [];
-        const answers = state.answers?.answers?.[id] || [];
+        if (!isRevealed(id)) {
+          return `<div class="panel review">
+          <h3>Câu ${index + 1}. ${linkify(question.content)}</h3>
+          <p><b>Bạn chọn:</b> ${linkify(selected.length ? selected.map((letter) => `${letter}. ${question.options[letter]}`).join("; ") : "Chưa trả lời")}</p>
+          <p class="muted">Đáp án tạm ẩn vì câu hỏi đang được dùng trong Đợt thi thật.</p>
+        </div>`;
+        }
+        const answers = revealedAnswers[id] || [];
         const selectedSet = new Set(selected);
         const answerSet = new Set(answers);
         const optionReport = Object.entries(question.options).map(([letter, text]) => {

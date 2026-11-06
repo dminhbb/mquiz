@@ -23,6 +23,7 @@ export interface SpaceRow {
 
 export interface RealExamContext {
   id: number;
+  spaceId: number;
   code: number;
   revisionId: number;
   timerSeconds: number;
@@ -30,9 +31,13 @@ export interface RealExamContext {
   scoringMethod: ScoringMethod;
 }
 
-/** A question as stored for scoring; `questionSetId` is 0 for unassigned questions. */
+/**
+ * A question as stored for scoring. `id` is questions.id for Space questions and the
+ * permanent question_code for real-exam questions; `questionSetId` is 0 when unassigned.
+ */
 export interface AnswerKeyRow extends ScoringQuestion {
   questionSetId: number;
+  questionCode: number;
 }
 
 interface RawQuestion {
@@ -45,12 +50,15 @@ interface RawQuestion {
 
 function toAnswerKeyRow(row: RawQuestion): AnswerKeyRow {
   return {
-    id: Number(row.question_code ?? row.id),
+    id: Number(row.id ?? row.question_code),
     type: row.type === "multi" ? "multi" : "single",
     correct: normalizeAnswer(row.correct_json),
-    questionSetId: Number(row.question_set_id ?? 0)
+    questionSetId: Number(row.question_set_id ?? 0),
+    questionCode: Number(row.question_code ?? 0)
   };
 }
+
+const SPACE_QUESTION_COLUMNS = "id,question_code,type,correct_json,question_set_id";
 
 function asScoringMethod(value: unknown): ScoringMethod {
   return Number(value) === 2 ? 2 : 1;
@@ -74,23 +82,42 @@ export async function loadPublishedSpace(admin: SupabaseClient, slug: string): P
   };
 }
 
-/** All visible questions of a Space with their answers (paginated past the PostgREST row cap). */
+/**
+ * Permanent codes of the questions in the current paper of a real exam that has not ended
+ * (scheduled or running). Their answers must not be revealed by Luyện tập/Thi thử.
+ */
+export async function loadLockedQuestionCodes(
+  admin: SupabaseClient,
+  spaceId: number
+): Promise<Set<number>> {
+  const { data, error } = await admin.rpc("list_real_exam_locked_question_codes", {
+    target_space_id: spaceId
+  });
+  if (error) throw error;
+  return new Set(((data ?? []) as unknown[]).map(Number));
+}
+
+/**
+ * All visible questions of a Space with their answers (paginated past the PostgREST row cap).
+ * Questions locked by a real exam that has not ended are left out, matching what anon can read.
+ */
 export async function loadSpaceQuestions(
   admin: SupabaseClient,
   spaceId: number
 ): Promise<AnswerKeyRow[]> {
+  const locked = await loadLockedQuestionCodes(admin, spaceId);
   const rows: AnswerKeyRow[] = [];
   for (let page = 0; page < MAX_PAGES; page += 1) {
     const { data, error } = await admin
       .from("questions")
-      .select("id,type,correct_json,question_set_id")
+      .select(SPACE_QUESTION_COLUMNS)
       .eq("space_id", spaceId)
       .is("hidden_at", null)
       .order("id")
       .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
     if (error) throw error;
     const batch = (data ?? []) as RawQuestion[];
-    rows.push(...batch.map(toAnswerKeyRow));
+    rows.push(...batch.map(toAnswerKeyRow).filter((row) => !locked.has(row.questionCode)));
     if (batch.length < PAGE_SIZE) break;
   }
   return rows;
@@ -110,7 +137,7 @@ export async function loadSpaceQuestionsByIds(
   if (ids.length === 0) return [];
   let query = admin
     .from("questions")
-    .select("id,type,correct_json,question_set_id")
+    .select(SPACE_QUESTION_COLUMNS)
     .eq("space_id", spaceId)
     .in("id", [...ids]);
   if (!includeArchived) query = query.is("hidden_at", null);
@@ -161,6 +188,7 @@ export async function loadRunningRealExam(
 
   return {
     id: Number(data.id),
+    spaceId,
     code: Number(data.code),
     revisionId: Number(data.current_revision_id),
     timerSeconds: Number(data.timer_seconds),
@@ -172,13 +200,14 @@ export async function loadRunningRealExam(
 /** Questions of the exam's current revision (immutable snapshot, with legacy fallback). */
 export async function loadRealExamQuestions(
   admin: SupabaseClient,
-  exam: Pick<RealExamContext, "id" | "revisionId">
+  exam: Pick<RealExamContext, "id" | "spaceId" | "revisionId">
 ): Promise<AnswerKeyRow[]> {
   const snapshot = await admin
     .from("real_exam_revision_question_snapshots")
     .select("question_code,type,correct_json")
     .eq("revision_id", exam.revisionId);
-  if (!snapshot.error && snapshot.data?.length) {
+  if (snapshot.error) throw snapshot.error;
+  if (snapshot.data?.length) {
     return (snapshot.data as RawQuestion[]).map(toAnswerKeyRow);
   }
 
@@ -193,9 +222,24 @@ export async function loadRealExamQuestions(
   const questions = await admin
     .from("questions")
     .select("question_code,type,correct_json")
+    .eq("space_id", exam.spaceId)
     .in("question_code", codes);
   if (questions.error) throw questions.error;
   return (questions.data as RawQuestion[]).map(toAnswerKeyRow);
+}
+
+/**
+ * True once a real exam is over (ended manually, past its end time, or gone), so its answers
+ * may be shown to students without helping anyone still taking it.
+ */
+export async function isRealExamClosed(admin: SupabaseClient, examId: number): Promise<boolean> {
+  const { data, error } = await admin
+    .from("real_exams")
+    .select("end_at,ended_at")
+    .eq("id", examId)
+    .maybeSingle();
+  if (error) throw error;
+  return !data || Boolean(data.ended_at) || Date.now() > Date.parse(data.end_at);
 }
 
 /** Minutes since midnight for `date` in the configured quiz timezone. */

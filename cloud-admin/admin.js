@@ -9,6 +9,8 @@
   /** timer_seconds = 0 means "Không giới hạn" (no per-question time limit). */
   const UNLIMITED_TIMER_SECONDS = 0;
   const REAL_EXAM_TIMER_OPTIONS_SECONDS = [30, 45, 60, 90, 120, 300, UNLIMITED_TIMER_SECONDS];
+  const POSTGRES_UNIQUE_VIOLATION = "23505";
+  const QUESTION_INSERT_ATTEMPTS = 3;
   const config = window.__SQ_SUPABASE__ || {};
   const client = window.supabase?.createClient(config.url, config.anonKey);
   let dialogErrorTimer = null;
@@ -1436,9 +1438,7 @@
           const { error } = await client.from("questions").update({ type, content, options_json: options, correct_json: correct }).eq("id", question.id).eq("space_id", spaceId);
           if (error) throw error;
         } else {
-          const { data: latest, error: latestError } = await client.from("questions").select("order_no").eq("space_id", spaceId).order("order_no", { ascending: false }).limit(1);
-          if (latestError) throw latestError;
-          const { error } = await client.from("questions").insert({ space_id: spaceId, question_set_id: activeSet.id, order_no: Number(latest?.[0]?.order_no || 0) + 1, type, content, options_json: options, correct_json: correct });
+          const { error } = await insertQuestionsAtEnd(spaceId, (maxOrder) => [{ space_id: spaceId, question_set_id: activeSet.id, order_no: maxOrder + 1, type, content, options_json: options, correct_json: correct }]);
           if (error) throw error;
         }
         await renderNext({ questionDeleteId: null, message: isEdit ? "Đã lưu thay đổi câu hỏi." : "Đã thêm câu hỏi vào ngân hàng." });
@@ -2347,6 +2347,25 @@
     });
   }
 
+  /**
+   * Inserts questions after the last order_no of the Space. Two admins adding questions at
+   * the same time can pick the same order_no (unique per Space), so a unique violation is
+   * retried with a fresh maximum.
+   *
+   * @param {number} spaceId
+   * @param {(maxOrder: number) => object[]} makeRows Builds the rows from the current maximum.
+   * @returns {Promise<{ error: any, rows: object[] }>}
+   */
+  async function insertQuestionsAtEnd(spaceId, makeRows) {
+    for (let attempt = 1; ; attempt += 1) {
+      const { data: latest, error: latestError } = await client.from("questions").select("order_no").eq("space_id", spaceId).order("order_no", { ascending: false }).limit(1);
+      if (latestError) return { error: latestError, rows: [] };
+      const rows = makeRows(Number(latest?.[0]?.order_no || 0));
+      const { error } = await client.from("questions").insert(rows);
+      if (!error || error.code !== POSTGRES_UNIQUE_VIOLATION || attempt >= QUESTION_INSERT_ATTEMPTS) return { error, rows };
+    }
+  }
+
   function buildQuestionInsertRows(spaceId, questions, questionSetId, maxOrder) {
     return questions.map((question, index) => ({
       space_id: spaceId,
@@ -2363,10 +2382,7 @@
     if (!questions.length) return 0;
     const restoreButton = setButtonBusy(button, `Đang thêm ${questions.length} câu...`);
     try {
-      const { data: current } = await client.from("questions").select("order_no").eq("space_id", spaceId).order("order_no", { ascending: false }).limit(1);
-      const maxOrder = current?.[0]?.order_no || 0;
-      const rows = buildQuestionInsertRows(spaceId, questions, questionSetId, maxOrder);
-      const { error } = await client.from("questions").insert(rows);
+      const { error, rows } = await insertQuestionsAtEnd(spaceId, (maxOrder) => buildQuestionInsertRows(spaceId, questions, questionSetId, maxOrder));
       if (error) {
         showDialogError(error.message);
         return 0;

@@ -52,14 +52,16 @@ dist/                     output sinh ra; không sửa trực tiếp
 
 ### Chế độ làm bài
 
-- **Mock**: câu hỏi lấy từ ngân hàng đã chọn và được shuffle trên client; `quiz-attempt` `start` kiểm tra danh sách câu/số câu và mở session, `submit` chấm điểm và ghi `quiz_attempts`.
+- **Mock**: câu hỏi lấy từ ngân hàng đã chọn và được shuffle trên client; `quiz-attempt` `start` kiểm tra danh sách câu/số câu và mở session, `submit` chấm điểm và ghi `quiz_attempts`. Học viên tự chọn timer, nhưng điểm Thời gian luôn so với timer mặc định của Space. Kết thúc sớm (`save: false`) không lưu kết quả.
 - **Practice**: gọi `quiz-evaluate` `check` để phản hồi từng câu và `review` để chấm màn kết quả; không tạo session hay `quiz_attempts`.
-- **Real**: đề lấy từ snapshot/revision của `real_exams`; `start` kiểm tra lịch thi, trạng thái và số lượt (khóa advisory trong `start_quiz_attempt_session`), kết quả gắn `real_exam_id`, mã đề và revision.
+- **Real**: đề lấy từ snapshot/revision của `real_exams`; `start` kiểm tra lịch thi, trạng thái và số lượt (khóa advisory trong `start_quiz_attempt_session`), kết quả gắn `real_exam_id`, mã đề và revision. Kết quả luôn được lưu (kể cả kết thúc sớm); đáp án và đúng/sai từng câu chỉ trả về khi đợt thi đã kết thúc.
+- **Khóa câu hỏi**: câu thuộc đề hiện tại của Đợt thi thật chưa kết thúc (đã lên lịch hoặc đang diễn ra) bị ẩn khỏi Luyện tập/Thi thử: RLS của anon dùng `is_question_locked_by_real_exam`, Edge Function dùng `list_real_exam_locked_question_codes`.
 
 ### Luồng `start` → `submit`
 
 1. Client chọn câu hỏi, gọi `quiz-attempt` `start`; server xác thực tên/group/danh sách câu, ghi `quiz_attempt_sessions` (thời điểm bắt đầu, câu hỏi, timer, scoring method do server cố định) và trả `attempt_id`. Với Thi thật, lượt thi được tính ngay khi bắt đầu.
-2. Khi nộp, client chỉ gửi lựa chọn. Server "claim" session (chống nộp lặp), kiểm tra tổng thời gian cho phép (`số câu × timer × 1,5 + 120 s`; timer `0` = Không giới hạn thì tối đa 24 giờ), chấm điểm bằng `_shared/scoring.ts`, ghi `quiz_attempts` bằng service role rồi trả điểm, đúng/sai và đáp án để xem lại. Nếu ghi thất bại, session được nhả để thử lại.
+2. Khi nộp, client chỉ gửi lựa chọn. Server "claim" session (chống nộp lặp), kiểm tra tổng thời gian cho phép (`số câu × timer × 1,5 + 120 s`; timer `0` = Không giới hạn thì tối đa 24 giờ), chấm điểm bằng `_shared/scoring.ts`, ghi `quiz_attempts` bằng service role rồi trả điểm, đúng/sai và đáp án để xem lại (`answers_hidden = true` khi một phần hoặc toàn bộ đáp án bị giữ lại).
+   Điểm Quy mô, Thời gian và Đúng giờ được nhân với tỷ lệ trả lời đúng, nên nộp bài trắng được 0 điểm. Nếu ghi thất bại, session được nhả để thử lại.
 3. Trình duyệt không có quyền `insert` vào `quiz_attempts`; trigger `attach_real_exam_metadata` vẫn kiểm tra lại lịch và giới hạn lượt ở tầng database.
 
 Rủi ro còn lại (không có đăng nhập cho người thi): tên học viên không xác thực, nên có thể mạo danh và tiêu hao lượt người khác; giới hạn tần suất theo IP và kiểm tra `focus_violation_count` do client báo chỉ giảm thiểu, không loại bỏ.

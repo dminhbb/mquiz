@@ -11,12 +11,14 @@ import { normalizeAnswer, parseSelectedLetters, sameAnswer } from "../_shared/an
 import { AppError, readJsonObject, serveJson } from "../_shared/http.ts";
 import {
   filterBySets,
+  loadLockedQuestionCodes,
   loadPublishedSpace,
   loadSpaceQuestions,
   loadSpaceQuestionsByIds,
   minutesOfDay,
   pickQuestions
 } from "../_shared/quiz-data.ts";
+import type { AnswerKeyRow } from "../_shared/quiz-data.ts";
 import { enforceRateLimit } from "../_shared/rate-limit.ts";
 import { calculateAttemptScore, calculatePunctualityScore } from "../_shared/scoring.ts";
 import { createServiceClient } from "../_shared/supabase.ts";
@@ -56,7 +58,7 @@ async function checkQuestion(admin: SupabaseClient, body: Record<string, unknown
   const selected = parseSelectedLetters(body.selected ?? []);
   if (!selected) throw new AppError("Đáp án gửi lên không hợp lệ.");
 
-  const [question] = await loadSpaceQuestionsByIds(admin, space.id, [questionId], false);
+  const [question] = await loadPracticeQuestions(admin, space.id, [questionId]);
   if (!question) throw new AppError("Câu hỏi không tồn tại.", HTTP_NOT_FOUND);
   const correct = normalizeAnswer(question.correct);
   return { correct, is_correct: sameAnswer(normalizeAnswer(selected), correct) };
@@ -68,7 +70,7 @@ async function reviewPractice(admin: SupabaseClient, body: Record<string, unknow
   const setIds = requireIdList(body.question_set_ids ?? [], "Bộ câu hỏi", true);
   const selections = parseSelections(body.selections, questionIds);
   const questions = pickQuestions(
-    await loadSpaceQuestionsByIds(admin, space.id, questionIds),
+    await loadPracticeQuestions(admin, space.id, questionIds),
     questionIds
   );
   const bankQuestionCount = filterBySets(await loadSpaceQuestions(admin, space.id), setIds).length;
@@ -114,6 +116,22 @@ async function reviewPractice(admin: SupabaseClient, body: Record<string, unknow
     correctness: breakdown.correctness,
     answers
   };
+}
+
+/**
+ * Questions whose answers Luyện tập may reveal: visible (not archived) and not part of the
+ * paper of a real exam that has not ended.
+ */
+async function loadPracticeQuestions(
+  admin: SupabaseClient,
+  spaceId: number,
+  ids: readonly number[]
+): Promise<AnswerKeyRow[]> {
+  const [rows, locked] = await Promise.all([
+    loadSpaceQuestionsByIds(admin, spaceId, ids, false),
+    loadLockedQuestionCodes(admin, spaceId)
+  ]);
+  return rows.filter((row) => !locked.has(row.questionCode));
 }
 
 /** Validates `{ "<questionId>": ["A", "C"] }` for the given question ids. */

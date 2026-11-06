@@ -20,8 +20,9 @@ interface LegacyInput {
 }
 
 /**
- * Verbatim port of the browser-side calculateCompositeScore() that was removed from
- * frontend/assets/app.js. Kept as a reference so server scoring stays numerically identical.
+ * Independent reference implementation: the browser-side calculateCompositeScore() that was
+ * removed from frontend/assets/app.js, plus the 2026-11 rule that coverage, duration and
+ * punctuality are scaled by the share answered correctly (a blank submission scores 0).
  */
 function legacyCompositeScore(input: LegacyInput) {
   const roundScore = (value: number) => Math.round(value * 100) / 100;
@@ -74,10 +75,12 @@ function legacyCompositeScore(input: LegacyInput) {
     );
   }).length;
   if (scoringMethod === 2) {
-    const knowledgeScore = totalQuestions ? (correctCount / totalQuestions) * 95 : 0;
+    const correctRatio = totalQuestions ? correctCount / totalQuestions : 0;
+    const knowledgeScore = correctRatio * 95;
     const durationScore =
       maximumDuration > 0
-        ? clamp(((maximumDuration - input.durationSeconds) / maximumDuration) * 5, 0, 5)
+        ? correctRatio *
+          clamp(((maximumDuration - input.durationSeconds) / maximumDuration) * 5, 0, 5)
         : 0;
     return {
       score: Math.round(clamp(knowledgeScore + durationScore, 0, 100)),
@@ -89,27 +92,30 @@ function legacyCompositeScore(input: LegacyInput) {
       multiSimilarityScore: roundScore(multiSimilarityScore)
     };
   }
+  const knowledgeRatio = totalWeight ? earnedWeight / totalWeight : 0;
   const knowledgeScore = totalWeight ? (75 * earnedWeight) / totalWeight : 0;
   const coverageScore = input.bankQuestionCount
-    ? (10 * totalQuestions) / input.bankQuestionCount
+    ? (knowledgeRatio * 10 * totalQuestions) / input.bankQuestionCount
     : 0;
   const durationScore =
-    maximumDuration > minimumReasonableDuration
+    knowledgeRatio *
+    (maximumDuration > minimumReasonableDuration
       ? 10 *
         clamp(
           (maximumDuration - input.durationSeconds) / (maximumDuration - minimumReasonableDuration),
           0,
           1
         )
-      : 10;
+      : 10);
+  const punctualityScore = knowledgeRatio * clamp(input.punctualityScore, 0, 5);
   return {
     score: Math.round(
-      clamp(knowledgeScore + coverageScore + durationScore + input.punctualityScore, 0, 100)
+      clamp(knowledgeScore + coverageScore + durationScore + punctualityScore, 0, 100)
     ),
     knowledgeScore: roundScore(knowledgeScore),
     coverageScore: roundScore(coverageScore),
     durationScore: roundScore(durationScore),
-    punctualityScore: roundScore(input.punctualityScore),
+    punctualityScore: roundScore(punctualityScore),
     multiCorrectCount,
     multiSimilarityScore: roundScore(multiSimilarityScore)
   };
@@ -261,6 +267,29 @@ describe("calculateAttemptScore", () => {
     });
     assert.ok(result.score <= 100);
     assert.equal(result.punctualityScore, 5);
+  });
+
+  it("gives a blank, instant submission 0 points under both methods", () => {
+    const questions: ScoringQuestion[] = [1, 2, 3, 4, 5].map((id) => ({
+      id,
+      type: "single",
+      correct: ["A"]
+    }));
+    for (const scoringMethod of [1, 2] as const) {
+      const result = calculateAttemptScore({
+        questions,
+        selections: {},
+        scoringMethod,
+        bankQuestionCount: 5,
+        durationSeconds: 1,
+        timerSeconds: 60,
+        punctualityScore: 5
+      });
+      assert.equal(result.score, 0, `method ${scoringMethod}`);
+      assert.equal(result.durationScore, 0);
+      assert.equal(result.coverageScore, 0);
+      assert.equal(result.punctualityScore, 0);
+    }
   });
 
   it("scores the duration of an unlimited attempt as if each question had 300s", () => {

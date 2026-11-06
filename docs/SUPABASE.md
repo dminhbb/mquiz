@@ -91,6 +91,17 @@ Dọn dữ liệu định kỳ (tuỳ chọn, Supabase Cron): `select public.pur
 
 `real_exams.space_id` là `on delete restrict`, nên xóa thẳng bảng `spaces` bị lỗi `real_exams_space_id_fkey` khi Space đã có Đợt thi thật. Chạy `supabase/delete_space_with_real_exams.sql` để `delete_space_cascade` (chỉ superadmin, xác nhận bằng slug) xóa cả kết quả, revision/snapshot và Đợt thi thật trước khi xóa Space; hàm từ chối khi còn đợt thi đang diễn ra. Admin gọi RPC này từ nút Xóa Space. Mã đợt thi và mã câu hỏi trong các registry được giữ lại để không cấp lại.
 
+## Thay đổi gần đây: sửa sau review (2026-11)
+
+Áp dụng theo thứ tự:
+
+1. `supabase/review_security_hardening.sql`: thu hồi EXECUTE của anon/authenticated trên các hàm nội bộ (`*_unchecked`, `allocate_*`, `replace_real_exam_sources`...), khóa câu hỏi thuộc Đợt thi thật chưa kết thúc, giới hạn quyền đọc `quiz_attempts` (anon: chỉ Thi thử 30 ngày của Space đã publish, chỉ cột bảng xếp hạng), `get_real_exam_attempt_count` đếm cả session, tự dọn session Thi thử cũ.
+2. `supabase/sync_space_slug_on_rename.sql`: đổi slug Space thì kết quả và session cũ đi theo slug mới (link `/{slug-cũ}` vẫn ngừng hoạt động).
+3. Deploy `quiz-attempt` và `quiz-evaluate`.
+4. Phát hành frontend + admin.
+
+Kiểm tra sau khi áp dụng: `select has_function_privilege('anon', 'public.cleanup_space_results_unchecked(bigint)', 'execute');` phải trả `false`.
+
 ## Deploy Edge Function
 
 ```bash

@@ -46,10 +46,16 @@ async function call(handler: Handler, body: unknown, headers: Record<string, str
 
 const SPACE_ID = 1;
 const LETTERS = ["A", "B", "C", "D"];
+/** question_code values the fake list_real_exam_locked_question_codes RPC returns. */
+let lockedQuestionCodes: number[] = [];
 
-/** Seeds a published Space with 10 questions (ids 1-10, answer A; every 5th is multi A+B). */
+/**
+ * Seeds a published Space with 10 questions (ids 1-10, question_code 1001-1010, answer A;
+ * every 5th is multi A+B).
+ */
 function seed() {
   db.reset();
+  lockedQuestionCodes = [];
   db.tables.spaces = [
     {
       id: SPACE_ID,
@@ -66,6 +72,7 @@ function seed() {
     const multi = id % 5 === 0;
     return {
       id,
+      question_code: 1000 + id,
       space_id: SPACE_ID,
       question_set_id: null,
       type: multi ? "multi" : "single",
@@ -84,6 +91,7 @@ function seed() {
     row.count = Number(row.count) + 1;
     return { data: Number(row.count) <= Number(args.p_limit), error: null };
   };
+  db.rpcs.list_real_exam_locked_question_codes = () => ({ data: lockedQuestionCodes, error: null });
   // Mirrors public.start_quiz_attempt_session (limit check + insert).
   db.rpcs.start_quiz_attempt_session = (args) => {
     const sessions = db.tables.quiz_attempt_sessions;
@@ -495,6 +503,132 @@ Deno.test("quiz-evaluate review scores a practice run without saving", async () 
   assert.equal(review.body.breakdown.correct_count, 2);
   assert.equal(review.body.breakdown.wrong_count, 3);
   assert.equal(db.tables.quiz_attempts.length, 0);
+});
+
+Deno.test("real exam answers stay hidden while the exam is open", async () => {
+  seed();
+  seedRealExam();
+  const start = (name: string) =>
+    call(attemptHandler, {
+      action: "start",
+      slug: "demo",
+      mode: "real",
+      exam_code: 12345,
+      student_name: name,
+      group_name: "Nhóm 1",
+      question_ids: [101, 102, 103, 104, 105]
+    });
+
+  // Ending early with save:false is still recorded and reveals nothing.
+  const early = await start("Tên giả");
+  const ended = await call(attemptHandler, {
+    action: "submit",
+    attempt_id: early.body.attempt_id,
+    selections: {},
+    save: false
+  });
+  assert.equal(ended.status, 200);
+  assert.equal(ended.body.saved, true);
+  assert.equal(ended.body.answers_hidden, true);
+  assert.deepEqual(ended.body.answers, {});
+  assert.deepEqual(ended.body.correctness, {});
+  assert.equal(db.tables.quiz_attempts.length, 1);
+  assert.ok(typeof ended.body.breakdown.score === "number");
+
+  // Once the exam is over, the answers can be shown.
+  const late = await start("Học viên muộn");
+  db.tables.real_exams[0].ended_at = new Date().toISOString();
+  const closed = await call(attemptHandler, {
+    action: "submit",
+    attempt_id: late.body.attempt_id,
+    selections: { 101: ["B"] },
+    save: true
+  });
+  assert.equal(closed.status, 200);
+  assert.equal(closed.body.answers_hidden, false);
+  assert.deepEqual(closed.body.answers["101"], ["B"]);
+  assert.equal(closed.body.correctness["101"], true);
+});
+
+Deno.test("Thi thử duration is scored against the Space timer, not the chosen one", async () => {
+  const scoreWithTimer = async (timerSeconds: number) => {
+    seed();
+    const { body } = await call(attemptHandler, mockStart({ timer_seconds: timerSeconds }));
+    db.tables.quiz_attempt_sessions[0].started_at = new Date(Date.now() - 100_000).toISOString();
+    const submitted = await call(attemptHandler, {
+      action: "submit",
+      attempt_id: body.attempt_id,
+      selections: { 1: ["A"], 2: ["A"], 3: ["A"], 4: ["A"], 5: ["A", "B"] },
+      save: true
+    });
+    assert.equal(submitted.status, 200);
+    assert.equal(db.tables.quiz_attempts[0].timer_seconds, timerSeconds, "chosen timer is kept");
+    return submitted.body.breakdown;
+  };
+  const short = await scoreWithTimer(15);
+  const long = await scoreWithTimer(300);
+  assert.equal(short.duration_score, long.duration_score);
+  assert.equal(short.score, long.score);
+});
+
+Deno.test("questions locked by an open real exam are hidden from practice and mock", async () => {
+  seed();
+  lockedQuestionCodes = [1002];
+
+  // Luyện tập: no feedback for a locked question, and review cannot include it.
+  const check = await call(evaluateHandler, {
+    action: "check",
+    slug: "demo",
+    question_id: 2,
+    selected: ["A"]
+  });
+  assert.equal(check.status, 404);
+  const review = await call(evaluateHandler, {
+    action: "review",
+    slug: "demo",
+    question_ids: [1, 2, 3, 4, 5],
+    selections: {},
+    timer_seconds: 60,
+    duration_seconds: 30
+  });
+  assert.equal(review.status, 400);
+
+  // Thi thử: the pool shrinks to 9 questions and a locked question cannot be drawn.
+  assert.equal(
+    (await call(attemptHandler, mockStart({ question_ids: [1, 2, 3, 4, 5] }))).status,
+    400
+  );
+  const started = await call(attemptHandler, mockStart({ question_ids: [1, 3, 4, 5, 6] }));
+  assert.equal(started.status, 200);
+  assert.equal(db.tables.quiz_attempt_sessions[0].bank_question_count, 9);
+
+  // A question locked after the attempt started is scored but its answer is withheld.
+  lockedQuestionCodes = [1003];
+  const submitted = await call(attemptHandler, {
+    action: "submit",
+    attempt_id: started.body.attempt_id,
+    selections: { 1: ["A"], 3: ["A"] },
+    save: true
+  });
+  assert.equal(submitted.status, 200);
+  assert.equal(submitted.body.breakdown.correct_count, 2);
+  assert.equal(submitted.body.answers_hidden, true);
+  assert.equal(submitted.body.answers["3"], undefined);
+  assert.deepEqual(submitted.body.answers["1"], ["A"]);
+});
+
+Deno.test("quiz-evaluate review does not reveal archived questions", async () => {
+  seed();
+  db.tables.questions[1].hidden_at = new Date().toISOString();
+  const review = await call(evaluateHandler, {
+    action: "review",
+    slug: "demo",
+    question_ids: [1, 2, 3, 4, 5],
+    selections: {},
+    timer_seconds: 60,
+    duration_seconds: 30
+  });
+  assert.equal(review.status, 400);
 });
 
 Deno.test("admin-users requires a superadmin and protects the last one", async () => {

@@ -4,8 +4,9 @@
  * - `start`  registers an attempt session: the server fixes the start time, the question
  *            list and the scoring parameters and enforces the real-exam schedule and the
  *            per-student attempt limit.
- * - `submit` scores the selections against the stored answers, saves the result (unless the
- *            attempt is abandoned) and returns the answers for review.
+ * - `submit` scores the selections against the stored answers and saves the result (a Thi
+ *            thử ended early with `save: false` is not saved; Thi thật always is). Answers
+ *            for review are returned only when revealing them cannot help an open real exam.
  *
  * Browsers cannot insert into quiz_attempts directly (see server_side_attempt_scoring.sql).
  */
@@ -13,6 +14,8 @@ import { normalizeAnswer, parseSelectedLetters } from "../_shared/answers.ts";
 import { AppError, readJsonObject, serveJson } from "../_shared/http.ts";
 import {
   filterBySets,
+  isRealExamClosed,
+  loadLockedQuestionCodes,
   loadPublishedSpace,
   loadRealExamQuestions,
   loadRunningRealExam,
@@ -169,7 +172,6 @@ async function startAttempt(admin: SupabaseClient, body: Record<string, unknown>
 async function submitAttempt(admin: SupabaseClient, body: Record<string, unknown>) {
   const attemptId = String(body.attempt_id ?? "");
   if (!UUID_PATTERN.test(attemptId)) throw new AppError("Mã lượt làm bài không hợp lệ.");
-  const shouldSave = body.save !== false;
   const reportedFocusViolations = Number(body.focus_violation_count ?? 0);
   const focusViolations = Number.isFinite(reportedFocusViolations)
     ? Math.min(MAX_FOCUS_VIOLATIONS, Math.max(0, Math.trunc(reportedFocusViolations)))
@@ -195,6 +197,9 @@ async function submitAttempt(admin: SupabaseClient, body: Record<string, unknown
   }
   const session = claimed as SessionRow & { finished_at: string };
   const questionIds = session.question_ids.map(Number);
+  // Ending a Thi thật attempt early still records it: the attempt was used when it started,
+  // and an unsaved run must not become a free way to see the paper.
+  const shouldSave = session.mode === "real" || body.save !== false;
 
   const elapsedSeconds = Math.max(
     0,
@@ -253,7 +258,7 @@ async function scoreAndSave(
     scoringMethod,
     bankQuestionCount: session.bank_question_count,
     durationSeconds: elapsedSeconds,
-    timerSeconds: session.timer_seconds,
+    timerSeconds: scoringTimerFor(session, space),
     punctualityScore: punctualityFor(session, space)
   });
 
@@ -303,8 +308,13 @@ async function scoreAndSave(
     if (markError) console.error("Could not mark attempt session as saved:", markError.message);
   }
 
+  const reveal = await revealableQuestions(admin, session, questions);
   const answers: Record<string, string[]> = {};
-  for (const question of questions) answers[question.id] = [...question.correct];
+  const correctness: Record<string, boolean> = {};
+  for (const question of reveal) {
+    answers[question.id] = [...question.correct];
+    correctness[question.id] = breakdown.correctness[question.id];
+  }
   return {
     saved: shouldSave,
     attempt_id: savedAttemptId,
@@ -319,9 +329,36 @@ async function scoreAndSave(
       correct_count: breakdown.correctCount,
       wrong_count: breakdown.wrongCount
     },
-    correctness: breakdown.correctness,
+    answers_hidden: reveal.length < questions.length,
+    correctness,
     answers
   };
+}
+
+/**
+ * Questions whose answers (and per-question correctness) may be returned after a submit:
+ * none while the real exam is still open, and for Thi thử none that are locked by an open
+ * real exam of the Space.
+ */
+async function revealableQuestions(
+  admin: SupabaseClient,
+  session: SessionRow,
+  questions: readonly AnswerKeyRow[]
+): Promise<readonly AnswerKeyRow[]> {
+  if (session.mode === "real") {
+    return (await isRealExamClosed(admin, Number(session.real_exam_id))) ? questions : [];
+  }
+  const locked = await loadLockedQuestionCodes(admin, session.space_id);
+  return questions.filter((question) => !locked.has(question.questionCode));
+}
+
+/**
+ * Seconds per question the duration score is measured against. Thi thử uses the Space's
+ * timer so every student is ranked on the same scale, whatever timer they picked.
+ */
+function scoringTimerFor(session: SessionRow, space: SpaceRow): number {
+  if (session.mode === "real") return session.timer_seconds;
+  return Number(space.timer_seconds) || session.timer_seconds;
 }
 
 function assertQuestionCount(actual: number, allowed: readonly number[]): void {
@@ -346,6 +383,7 @@ function loadSessionQuestions(admin: SupabaseClient, session: SessionRow): Promi
   if (session.mode === "real") {
     return loadRealExamQuestions(admin, {
       id: Number(session.real_exam_id),
+      spaceId: session.space_id,
       revisionId: Number(session.real_exam_revision_id)
     });
   }
